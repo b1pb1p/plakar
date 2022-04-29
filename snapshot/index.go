@@ -115,7 +115,7 @@ func (index *Index) addChecksum(checksum [32]byte) {
 	}
 }
 
-func (index *Index) getChecksumID(checksum [32]byte) (uint64, bool) {
+func (index *Index) GetChecksumID(checksum [32]byte) (uint64, bool) {
 	index.muChecksums.Lock()
 	defer index.muChecksums.Unlock()
 
@@ -123,7 +123,7 @@ func (index *Index) getChecksumID(checksum [32]byte) (uint64, bool) {
 	return checksumID, exists
 }
 
-func (index *Index) getChecksum(checksumID uint64) ([32]byte, bool) {
+func (index *Index) GetChecksum(checksumID uint64) ([32]byte, bool) {
 	index.muChecksums.Lock()
 	defer index.muChecksums.Unlock()
 
@@ -143,7 +143,7 @@ func (index *Index) addPathname(pathname string) {
 	}
 }
 
-func (index *Index) getPathnameID(pathname string) (uint64, bool) {
+func (index *Index) GetPathnameID(pathname string) (uint64, bool) {
 	index.muPathnames.Lock()
 	defer index.muPathnames.Unlock()
 
@@ -151,7 +151,7 @@ func (index *Index) getPathnameID(pathname string) (uint64, bool) {
 	return pathnameID, exists
 }
 
-func (index *Index) getPathname(pathnameID uint64) (string, bool) {
+func (index *Index) GetPathname(pathnameID uint64) (string, bool) {
 	index.muPathnames.Lock()
 	defer index.muPathnames.Unlock()
 
@@ -171,7 +171,7 @@ func (index *Index) addContentType(contentType string) {
 	}
 }
 
-func (index *Index) getContentTypeID(contentType string) (uint64, bool) {
+func (index *Index) GetContentTypeID(contentType string) (uint64, bool) {
 	index.muContentType.Lock()
 	defer index.muContentType.Unlock()
 
@@ -180,7 +180,7 @@ func (index *Index) getContentTypeID(contentType string) (uint64, bool) {
 	return contentTypeID, exists
 }
 
-func (index *Index) getContentType(contentTypeID uint64) (string, bool) {
+func (index *Index) GetContentType(contentTypeID uint64) (string, bool) {
 	index.muContentType.Lock()
 	defer index.muContentType.Unlock()
 
@@ -214,7 +214,7 @@ func (index *Index) ListObjects() [][32]byte {
 
 	ret := make([][32]byte, 0)
 	for checksumID := range index.Objects {
-		checksum, exists := index.getChecksum(checksumID)
+		checksum, exists := index.GetChecksum(checksumID)
 		if !exists {
 			panic("ListObjects: corrupted index")
 		}
@@ -229,7 +229,7 @@ func (index *Index) ListChunks() [][32]byte {
 
 	ret := make([][32]byte, 0)
 	for checksumID := range index.Chunks {
-		checksum, exists := index.getChecksum(checksumID)
+		checksum, exists := index.GetChecksum(checksumID)
 		if !exists {
 			panic("ListChunks: corrupted index")
 		}
@@ -268,7 +268,7 @@ func (index *Index) AddChunk(chunk *Chunk) {
 
 	index.addChecksum(chunk.Checksum)
 
-	checksumID, exists := index.getChecksumID(chunk.Checksum)
+	checksumID, exists := index.GetChecksumID(chunk.Checksum)
 	if !exists {
 		panic("AddChunk: corrupted index")
 	}
@@ -287,12 +287,12 @@ func (index *Index) AddObject(object *Object) {
 	index.addChecksum(object.Checksum)
 	index.addContentType(object.ContentType)
 
-	objectChecksumID, exists := index.getChecksumID(object.Checksum)
+	objectChecksumID, exists := index.GetChecksumID(object.Checksum)
 	if !exists {
 		panic("AddObject: corrupted index: could not find object checksum")
 	}
 
-	contentTypeID, exists := index.getContentTypeID(object.ContentType)
+	contentTypeID, exists := index.GetContentTypeID(object.ContentType)
 	if !exists {
 		panic("AddObject: corrupted index: could not find content type")
 	}
@@ -301,7 +301,7 @@ func (index *Index) AddObject(object *Object) {
 
 	chunks := make([]uint64, 0)
 	for _, checksum := range object.Chunks {
-		chunkChecksumID, exists := index.getChecksumID(checksum)
+		chunkChecksumID, exists := index.GetChecksumID(checksum)
 		if !exists {
 			panic("AddObject: corrupted index: could not find chunk checksum")
 		}
@@ -323,12 +323,12 @@ func (index *Index) LinkPathnameToObject(pathname string, object *Object) {
 	pathname = filepath.Clean(pathname)
 	index.addPathname(pathname)
 
-	pathnameID, exists := index.getPathnameID(pathname)
+	pathnameID, exists := index.GetPathnameID(pathname)
 	if !exists {
 		panic("LinkPathnameToObject: corrupted index: could not find pathname")
 	}
 
-	checksumID, exists := index.getChecksumID(object.Checksum)
+	checksumID, exists := index.GetChecksumID(object.Checksum)
 	if !exists {
 		panic("LinkPathnameToObject: corrupted index: could not find object checksum")
 	}
@@ -344,7 +344,7 @@ func (index *Index) LookupChunk(checksum [32]byte) *Chunk {
 	index.muChunks.Lock()
 	defer index.muChunks.Unlock()
 
-	checksumID, exists := index.getChecksumID(checksum)
+	checksumID, exists := index.GetChecksumID(checksum)
 	if !exists {
 		return nil
 	}
@@ -364,7 +364,7 @@ func (index *Index) LookupObject(checksum [32]byte) *Object {
 	index.muObjects.Lock()
 	defer index.muObjects.Unlock()
 
-	checksumID, exists := index.getChecksumID(checksum)
+	checksumID, exists := index.GetChecksumID(checksum)
 	if !exists {
 		return nil
 	}
@@ -376,14 +376,14 @@ func (index *Index) LookupObject(checksum [32]byte) *Object {
 
 	chunks := make([][32]byte, 0)
 	for _, checksumID := range object.Chunks {
-		checksum, exists := index.getChecksum(checksumID)
+		checksum, exists := index.GetChecksum(checksumID)
 		if !exists {
 			panic("LookupObject: corrupted index: could not find chunk checksum")
 		}
 		chunks = append(chunks, checksum)
 	}
 
-	contentTypeID, exists := index.getContentType(object.ContentType)
+	contentTypeID, exists := index.GetContentType(object.ContentType)
 	if !exists {
 		panic("LookupObject: corrupted index: could not find content type")
 	}
@@ -400,7 +400,7 @@ func (index *Index) LookupObjectForPathname(pathname string) *Object {
 	defer index.muPathnameToObject.Unlock()
 
 	// should implement an "exists" version ?
-	pathnameID, exists := index.getPathnameID(filepath.Clean(pathname))
+	pathnameID, exists := index.GetPathnameID(filepath.Clean(pathname))
 	if !exists {
 		return nil
 	}
@@ -410,7 +410,7 @@ func (index *Index) LookupObjectForPathname(pathname string) *Object {
 		return nil
 	}
 
-	checksum, exists := index.getChecksum(checksumID)
+	checksum, exists := index.GetChecksum(checksumID)
 	if !exists {
 		panic("LookupObjectForPathname: corrupted index: could not find object checksum")
 	}
@@ -422,7 +422,7 @@ func (index *Index) LookupObjectsForContentType(contentType string) [][32]byte {
 	index.muContentTypeToObjects.Lock()
 	defer index.muContentTypeToObjects.Unlock()
 
-	contentTypeID, exists := index.getContentTypeID(contentType)
+	contentTypeID, exists := index.GetContentTypeID(contentType)
 	if !exists {
 		panic("LookupObjectsForContentType: corrupted index: could not find content type")
 	}
@@ -432,7 +432,7 @@ func (index *Index) LookupObjectsForContentType(contentType string) [][32]byte {
 	} else {
 		ret := make([][32]byte, 0)
 		for _, symbolKey := range objectsChecksums {
-			checksum, exists := index.getChecksum(symbolKey)
+			checksum, exists := index.GetChecksum(symbolKey)
 			if !exists {
 				panic("LookupObjectsForContentType: corrupted index: could not find chunk")
 			}
