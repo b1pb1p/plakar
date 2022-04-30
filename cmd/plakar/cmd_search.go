@@ -21,8 +21,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"strings"
+	"sync"
 
 	"github.com/blevesearch/bleve/v2"
+	"github.com/google/uuid"
+	"github.com/poolpOrg/plakar/snapshot"
 	"github.com/poolpOrg/plakar/storage"
 )
 
@@ -32,59 +35,85 @@ func init() {
 
 func cmd_search(ctx Plakar, repository *storage.Repository, args []string) int {
 	var opt_index bool
+	var opt_query string
+
 	flags := flag.NewFlagSet("search", flag.ExitOnError)
 	flags.BoolVar(&opt_index, "index", false, "")
+	flags.StringVar(&opt_query, "query", "", "")
 	flags.Parse(args)
 
-	index, err := bleve.Open("/tmp/plakar-bleeve")
+	searchIndex, err := bleve.Open("/tmp/plakar-bleeve")
 	if err != nil {
 		mapping := bleve.NewIndexMapping()
-		index, err = bleve.New("/tmp/plakar-bleeve", mapping)
+		searchIndex, err = bleve.New("/tmp/plakar-bleeve", mapping)
 		if err != nil {
 			return 1
 		}
 	}
 
 	if opt_index {
-		snapshots, _ := getSnapshots(repository, nil)
-		for _, snapshotIndex := range snapshots {
-			for contentType := range snapshotIndex.Index.ContentTypes {
-				if strings.HasPrefix(contentType, "text/") {
-					for _, object := range snapshotIndex.Index.LookupObjectsForContentType(contentType) {
-						objectID, _ := snapshotIndex.Index.GetChecksumID(object)
-						for _, pathnameID := range snapshotIndex.Index.ObjectToPathnames[objectID] {
-							pathname, _ := snapshotIndex.Index.GetPathname(pathnameID)
-							fmt.Println(pathname)
-							rd, err := snapshotIndex.NewReader(pathname)
-							if err != nil {
-								fmt.Println(err)
-								continue
-							}
-							data, err := ioutil.ReadAll(rd)
-							if err != nil {
-								fmt.Println(err)
-								continue
-							}
-							err = index.Index(fmt.Sprintf("%s:%s", snapshotIndex.Metadata.IndexID, pathname), string(data))
-							if err != nil {
-								fmt.Println(err)
-								continue
-							}
+		indexesID, _ := repository.GetIndexes()
+		wg := sync.WaitGroup{}
+		maxConcurrency := make(chan bool, 512)
+		for _, _indexID := range indexesID {
+			maxConcurrency <- true
+			wg.Add(1)
+			go func(indexID uuid.UUID) {
+				snap, err := snapshot.Load(repository, indexID)
+				if err != nil {
+					return
+				}
+				for contentType := range snap.Index.ContentTypes {
+					if strings.HasPrefix(contentType, "text/") {
+						for _, object := range snap.Index.LookupObjectsForContentType(contentType) {
+							objectID, _ := snap.Index.GetChecksumID(object)
+							for _, pathnameID := range snap.Index.ObjectToPathnames[objectID] {
+								_pathname, _ := snap.Index.GetPathname(pathnameID)
 
+								maxConcurrency <- true
+								wg.Add(1)
+								go func(pathname string) {
+									fmt.Println(pathname)
+
+									rd, err := snap.NewReader(pathname)
+									if err != nil {
+										fmt.Println(err)
+										return
+									}
+
+									data, err := ioutil.ReadAll(rd)
+									if err != nil {
+										fmt.Println(err)
+										return
+									}
+									err = searchIndex.Index(fmt.Sprintf("%s:%s", snap.Metadata.IndexID, pathname), string(data))
+									if err != nil {
+										fmt.Println(err)
+										return
+									}
+									wg.Done()
+									<-maxConcurrency
+								}(_pathname)
+
+							}
 						}
 					}
 				}
-			}
+				wg.Done()
+				<-maxConcurrency
+			}(_indexID)
 		}
+		wg.Wait()
 	}
 
-	// search for some text
-	queryString := flags.Arg(0)
-	fmt.Println("query: " + queryString)
-	query := bleve.NewMatchQuery(queryString)
-	search := bleve.NewSearchRequest(query)
-	searchResults, err := index.Search(search)
-	fmt.Println(searchResults)
-
+	if opt_query != "" {
+		// search for some text
+		queryString := opt_query
+		fmt.Println("query: " + queryString)
+		query := bleve.NewMatchQuery(queryString)
+		search := bleve.NewSearchRequest(query)
+		searchResults, _ := searchIndex.Search(search)
+		fmt.Println(searchResults)
+	}
 	return 0
 }
