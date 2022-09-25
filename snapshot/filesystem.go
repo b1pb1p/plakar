@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -132,7 +133,7 @@ func (filesystem *Filesystem) buildTree(pathname string, fileinfo *Fileinfo) {
 	filesystem.muStat.Unlock()
 }
 
-func (filesystem *Filesystem) Scan(directory string, skip []string) error {
+func (filesystem *Filesystem) Scan(c chan<- int64, directory string, skip []string) error {
 	directory = filepath.Clean(directory)
 	for _, scanned := range filesystem.scannedDirectories {
 		if scanned == directory {
@@ -195,7 +196,7 @@ func (filesystem *Filesystem) Scan(directory string, skip []string) error {
 				filesystem.muSymlinks.Unlock()
 			}
 		}
-
+		c <- 1
 		return nil
 	})
 	if err != nil {
@@ -278,6 +279,9 @@ func (filesystem *Filesystem) LookupChildren(pathname string) ([]string, error) 
 	for child := range parent.Children {
 		ret = append(ret, child)
 	}
+
+	sort.Strings(ret)
+
 	return ret, nil
 
 }

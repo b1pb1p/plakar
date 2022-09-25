@@ -17,19 +17,21 @@
 package main
 
 import (
+	"compress/gzip"
 	"flag"
-	"fmt"
+	"io"
+	"os"
 
 	"github.com/poolpOrg/plakar/logger"
 	"github.com/poolpOrg/plakar/storage"
 )
 
 func init() {
-	registerCommand("checksum", cmd_checksum)
+	registerCommand("gzcat", cmd_gzcat)
 }
 
-func cmd_checksum(ctx Plakar, repository *storage.Repository, args []string) int {
-	flags := flag.NewFlagSet("checksum", flag.ExitOnError)
+func cmd_gzcat(ctx Plakar, repository *storage.Repository, args []string) int {
+	flags := flag.NewFlagSet("gzcat", flag.ExitOnError)
 	flags.Parse(args)
 
 	if flags.NArg() == 0 {
@@ -53,16 +55,40 @@ func cmd_checksum(ctx Plakar, repository *storage.Repository, args []string) int
 			continue
 		}
 
-		object := snapshot.Index.LookupObjectForPathname(pathname)
-		if object == nil {
-			logger.Error("%s: could not open file '%s'", flags.Name(), pathname)
+		rd, err := snapshot.NewReader(pathname)
+		if err != nil {
+			logger.Error("%s: %s: %s", flags.Name(), pathname, err)
 			errors++
 			continue
 		}
 
-		fmt.Printf("%064x %s\n", object.Checksum, pathname)
+		var outRd io.ReadCloser
+		outRd = rd
 
+		if rd.GetContentType() != "application/gzip" {
+			logger.Error("%s: %s: not in gzip format", flags.Name(), pathname)
+			errors++
+			continue
+		}
+
+		gzRd, err := gzip.NewReader(outRd)
+		if err != nil {
+			logger.Error("%s: %s: %s", flags.Name(), pathname, err)
+			errors++
+			continue
+		}
+		outRd = gzRd
+
+		_, err = io.Copy(os.Stdout, outRd)
+		if err != nil {
+			logger.Error("%s: %s: %s", flags.Name(), pathname, err)
+			errors++
+			continue
+		}
 	}
 
+	if errors != 0 {
+		return 1
+	}
 	return 0
 }

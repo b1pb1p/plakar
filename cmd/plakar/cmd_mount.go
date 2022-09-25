@@ -1,5 +1,5 @@
-//go:build go1.16
-// +build go1.16
+//go:build linux || darwin
+// +build linux darwin
 
 /*
  * Copyright (c) 2021 Gilles Chehade <gilles@poolp.org>
@@ -20,29 +20,49 @@
 package main
 
 import (
+	"context"
 	"flag"
-	"fmt"
-	"os"
+	"log"
 
+	"github.com/jacobsa/fuse"
+	"github.com/poolpOrg/plakar/logger"
+	"github.com/poolpOrg/plakar/plakarfs"
 	"github.com/poolpOrg/plakar/storage"
-	"github.com/poolpOrg/plakar/ui"
 )
 
 func init() {
-	registerCommand("browser", cmd_browser)
+	registerCommand("mount", cmd_mount)
 }
 
-func cmd_browser(ctx Plakar, repository *storage.Repository, args []string) int {
-	var opt_nospawn bool
-
-	flags := flag.NewFlagSet("browser", flag.ExitOnError)
-	flags.BoolVar(&opt_nospawn, "no-spawn", false, "don't spawn browser")
+func cmd_mount(ctx Plakar, repository *storage.Repository, args []string) int {
+	flags := flag.NewFlagSet("mount", flag.ExitOnError)
 	flags.Parse(args)
 
-	err := ui.Ui(repository, !opt_nospawn)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s: %s: %s\n", flag.CommandLine.Name(), flags.Name(), err)
+	if flags.NArg() != 1 {
+		logger.Error("need mountpoint")
 		return 1
+	}
+
+	mountpoint := flags.Arg(0)
+
+	// Create an appropriate file system.
+	server, err := plakarfs.NewPlakarFS(repository, mountpoint)
+	if err != nil {
+		log.Fatalf("makeFS: %v", err)
+	}
+
+	cfg := &fuse.MountConfig{
+		ReadOnly: true,
+	}
+
+	mfs, err := fuse.Mount(mountpoint, server, cfg)
+	if err != nil {
+		log.Fatalf("Mount: %v", err)
+	}
+
+	// Wait for it to be unmounted.
+	if err = mfs.Join(context.Background()); err != nil {
+		log.Fatalf("Join: %v", err)
 	}
 
 	return 0
