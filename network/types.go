@@ -31,6 +31,15 @@ type ResOpen struct {
 	Err              error
 }
 
+type ReqStorePutSignature struct {
+	IndexID uuid.UUID
+	Data    []byte
+}
+
+type ResStorePutSignature struct {
+	Err error
+}
+
 type ReqStorePutMetadata struct {
 	IndexID uuid.UUID
 	Data    []byte
@@ -80,6 +89,15 @@ type ReqGetIndexes struct {
 type ResGetIndexes struct {
 	Indexes []uuid.UUID
 	Err     error
+}
+
+type ReqGetSignature struct {
+	Uuid uuid.UUID
+}
+
+type ResGetSignature struct {
+	Data []byte
+	Err  error
 }
 
 type ReqGetMetadata struct {
@@ -210,6 +228,15 @@ type ResPutObject struct {
 	Err error
 }
 
+type ReqPutSignature struct {
+	Transaction uuid.UUID
+	Data        []byte
+}
+
+type ResPutSignature struct {
+	Err error
+}
+
 type ReqPutMetadata struct {
 	Transaction uuid.UUID
 	Data        []byte
@@ -293,6 +320,9 @@ func ProtocolRegister() {
 	gob.Register(ReqGetIndexes{})
 	gob.Register(ResGetIndexes{})
 
+	gob.Register(ReqStorePutSignature{})
+	gob.Register(ResStorePutSignature{})
+
 	gob.Register(ReqStorePutMetadata{})
 	gob.Register(ResStorePutMetadata{})
 
@@ -349,6 +379,9 @@ func ProtocolRegister() {
 
 	gob.Register(ReqPutObject{})
 	gob.Register(ResPutObject{})
+
+	gob.Register(ReqPutSignature{})
+	gob.Register(ResPutSignature{})
 
 	gob.Register(ReqPutMetadata{})
 	gob.Register(ResPutMetadata{})

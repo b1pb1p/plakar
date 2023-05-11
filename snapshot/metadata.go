@@ -1,8 +1,10 @@
 package snapshot
 
 import (
+	"encoding/base64"
 	"time"
 
+	"github.com/ebfe/signify"
 	"github.com/google/uuid"
 	"github.com/poolpOrg/plakar/storage"
 	"github.com/vmihailenco/msgpack/v5"
@@ -58,7 +60,11 @@ type Metadata struct {
 	FilePercentExtension map[string]float64
 }
 
-func NewMetadata(indexID uuid.UUID) *Metadata {
+func NewMetadata(indexID uuid.UUID, publicKey *signify.PublicKey) *Metadata {
+	strPublicKey := ""
+	if publicKey != nil {
+		strPublicKey = base64.RawStdEncoding.EncodeToString(signify.MarshalPublicKey(publicKey))
+	}
 	return &Metadata{
 		IndexID:      indexID,
 		CreationTime: time.Now(),
@@ -67,7 +73,7 @@ func NewMetadata(indexID uuid.UUID) *Metadata {
 		Username:     "",
 		CommandLine:  "",
 		MachineID:    "",
-		PublicKey:    "",
+		PublicKey:    strPublicKey,
 
 		FileKind:      make(map[string]uint64),
 		FileType:      make(map[string]uint64),

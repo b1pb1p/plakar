@@ -15,6 +15,9 @@ import (
 type Cache struct {
 	db *leveldb.DB
 
+	mu_signatures sync.Mutex
+	signatures    map[string][]byte
+
 	mu_metadatas sync.Mutex
 	metadatas    map[string][]byte
 
@@ -53,6 +56,7 @@ func New(cacheDir string) *Cache {
 
 	cache := &Cache{}
 	cache.db = db
+	cache.signatures = make(map[string][]byte)
 	cache.metadatas = make(map[string][]byte)
 	cache.indexes = make(map[string][]byte)
 	cache.filesystems = make(map[string][]byte)
@@ -60,6 +64,24 @@ func New(cacheDir string) *Cache {
 	cache.objects = make(map[string][]byte)
 
 	return cache
+}
+
+func (cache *Cache) PutSignature(RepositoryUuid string, Uuid string, data []byte) error {
+	t0 := time.Now()
+	defer func() {
+		profiler.RecordEvent("cache.PutSignature", time.Since(t0))
+	}()
+
+	logger.Trace("cache", "%s: PutSignature()", Uuid)
+	key := fmt.Sprintf("Signature:%s:%s", RepositoryUuid, Uuid)
+
+	cache.mu_signatures.Lock()
+	cache.signatures[key] = data
+	cache.mu_signatures.Unlock()
+
+	cache.db.Put([]byte(key), data, nil)
+
+	return nil
 }
 
 func (cache *Cache) PutMetadata(RepositoryUuid string, Uuid string, data []byte) error {
@@ -114,6 +136,30 @@ func (cache *Cache) PutFilesystem(RepositoryUuid string, Uuid string, data []byt
 	cache.db.Put([]byte(key), data, nil)
 
 	return nil
+}
+
+func (cache *Cache) GetSignature(RepositoryUuid string, Uuid string) ([]byte, error) {
+	t0 := time.Now()
+	defer func() {
+		profiler.RecordEvent("cache.GetSignature", time.Since(t0))
+	}()
+	logger.Trace("cache", "%s: GetSignature()", Uuid)
+
+	key := fmt.Sprintf("Signature:%s:%s", RepositoryUuid, Uuid)
+	cache.mu_signatures.Lock()
+	ret, exists := cache.signatures[key]
+	cache.mu_signatures.Unlock()
+	if exists {
+		return ret, nil
+	}
+
+	var data []byte
+	data, err := cache.db.Get([]byte(key), nil)
+
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 func (cache *Cache) GetMetadata(RepositoryUuid string, Uuid string) ([]byte, error) {

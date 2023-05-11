@@ -17,12 +17,17 @@
 package main
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"runtime"
 
+	"github.com/ebfe/signify"
 	"github.com/google/uuid"
+	"github.com/poolpOrg/plakar/helpers"
 	"github.com/poolpOrg/plakar/logger"
 	"github.com/poolpOrg/plakar/snapshot"
 	"github.com/poolpOrg/plakar/storage"
@@ -34,8 +39,10 @@ func init() {
 
 func cmd_push(ctx Plakar, repository *storage.Repository, args []string) int {
 	var opt_progress bool
+	var opt_signkey string
 	flags := flag.NewFlagSet("push", flag.ExitOnError)
 	flags.BoolVar(&opt_progress, "progress", false, "display progress bar")
+	flags.StringVar(&opt_signkey, "sign", "", "keyfile to use for snapshot signing")
 	flags.Parse(args)
 
 	dir, err := os.Getwd()
@@ -44,7 +51,56 @@ func cmd_push(ctx Plakar, repository *storage.Repository, args []string) int {
 		return 1
 	}
 
-	snap, err := snapshot.New(repository, uuid.Must(uuid.NewRandom()))
+	var skp SerializedKeypair
+	var privateKey *signify.PrivateKey
+	var publicKey *signify.PublicKey
+
+	if opt_signkey != "" {
+		data, err := ioutil.ReadFile(opt_signkey)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: error: %s\n", flag.CommandLine.Name(), err)
+			return 1
+		}
+
+		err = json.Unmarshal(data, &skp)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: error: %s\n", flag.CommandLine.Name(), err)
+			return 1
+		}
+
+		encryptedKey, err := base64.RawStdEncoding.DecodeString(skp.PrivateKey)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: error: %s\n", flag.CommandLine.Name(), err)
+			return 1
+		}
+		encodedPublicKey, err := base64.RawStdEncoding.DecodeString(skp.PublicKey)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: error: %s\n", flag.CommandLine.Name(), err)
+			return 1
+		}
+
+		for {
+			passphrase, err := helpers.GetPassphrase("signify")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s\n", err)
+				return 1
+			}
+			tmp, err := signify.ParsePrivateKey(encryptedKey, passphrase)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s: error: %s\n", flag.CommandLine.Name(), err)
+				continue
+			}
+			privateKey = tmp
+			break
+		}
+		publicKey, err = signify.ParsePublicKey(encodedPublicKey)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: error: %s\n", flag.CommandLine.Name(), err)
+			return 1
+		}
+	}
+
+	snap, err := snapshot.New(repository, uuid.Must(uuid.NewRandom()), privateKey, publicKey)
 	if err != nil {
 		logger.Error("%s", err)
 		return 1

@@ -130,7 +130,7 @@ func cmd_sync(ctx Plakar, repository *storage.Repository, args []string) int {
 			return 1
 		}
 
-		copySnapshot, err := snapshot.New(dstRepository, indexID)
+		copySnapshot, err := snapshot.New(dstRepository, indexID, nil, nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: could not create snapshot in repository: %s\n", syncRepository, err)
 			return 1

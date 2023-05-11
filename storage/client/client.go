@@ -366,6 +366,18 @@ func (repository *ClientRepository) GetIndexes() ([]uuid.UUID, error) {
 	return result.Payload.(network.ResGetIndexes).Indexes, result.Payload.(network.ResGetIndexes).Err
 }
 
+func (repository *ClientRepository) PutSignature(indexID uuid.UUID, data []byte) error {
+	result, err := repository.sendRequest("ReqStorePutSignature", network.ReqStorePutSignature{
+		IndexID: indexID,
+		Data:    data,
+	})
+	if err != nil {
+		return err
+	}
+
+	return result.Payload.(network.ResStorePutSignature).Err
+}
+
 func (repository *ClientRepository) PutMetadata(indexID uuid.UUID, data []byte) error {
 	result, err := repository.sendRequest("ReqStorePutMetadata", network.ReqStorePutMetadata{
 		IndexID: indexID,
@@ -418,6 +430,17 @@ func (repository *ClientRepository) GetObjects() ([][32]byte, error) {
 	}
 
 	return result.Payload.(network.ResGetObjects).Objects, result.Payload.(network.ResGetObjects).Err
+}
+
+func (repository *ClientRepository) GetSignature(indexID uuid.UUID) ([]byte, error) {
+	result, err := repository.sendRequest("ReqGetSignature", network.ReqGetSignature{
+		Uuid: indexID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return result.Payload.(network.ResGetSignature).Data, result.Payload.(network.ResGetSignature).Err
 }
 
 func (repository *ClientRepository) GetMetadata(indexID uuid.UUID) ([]byte, error) {
@@ -569,6 +592,19 @@ func (transaction *ClientTransaction) PutChunk(checksum [32]byte, data []byte) e
 		return err
 	}
 	return result.Payload.(network.ResPutChunk).Err
+}
+
+func (transaction *ClientTransaction) PutSignature(data []byte) error {
+	repository := transaction.repository
+	result, err := repository.sendRequest("ReqPutSignature", network.ReqPutSignature{
+		Transaction: transaction.GetUuid(),
+		Data:        data,
+	})
+	if err != nil {
+		return err
+	}
+
+	return result.Payload.(network.ResPutSignature).Err
 }
 
 func (transaction *ClientTransaction) PutMetadata(data []byte) error {

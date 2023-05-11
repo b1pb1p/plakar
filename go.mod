@@ -26,6 +26,8 @@ require (
 
 require (
 	github.com/dlclark/regexp2 v1.4.0 // indirect
+	github.com/ebfe/bcrypt_pbkdf v0.0.0-20140212075826-3c8d2dcb253a // indirect
+	github.com/ebfe/signify v0.0.0-20170825094700-1f23fb7514b0 // indirect
 	github.com/golang/snappy v0.0.0-20180518054509-2e65f85255db // indirect
 	github.com/gopherjs/gopherjs v1.17.2 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect

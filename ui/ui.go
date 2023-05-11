@@ -134,7 +134,7 @@ func getMetadatas(repository *storage.Repository) ([]*snapshot.Metadata, error) 
 		wg.Add(1)
 		go func(snapshotUuid uuid.UUID) {
 			defer wg.Done()
-			metadata, _, err := snapshot.GetMetadata(repository, snapshotUuid)
+			metadata, _, _, err := snapshot.GetMetadata(repository, snapshotUuid)
 			if err != nil {
 				return
 			}

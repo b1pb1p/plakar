@@ -92,7 +92,7 @@ func (fs *plakarFS) getInode(pathname string) (fuseops.InodeID, bool) {
 func (fs *plakarFS) getMetadata(snapshotID uuid.UUID) (*snapshot.Metadata, error) {
 	entry, exists := fs.metadataCache.Load(snapshotID)
 	if !exists {
-		md, _, err := snapshot.GetMetadata(fs.repository, snapshotID)
+		md, _, _, err := snapshot.GetMetadata(fs.repository, snapshotID)
 		if err != nil {
 			return md, err
 		}

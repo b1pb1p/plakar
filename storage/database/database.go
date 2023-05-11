@@ -126,6 +126,16 @@ func (repository *DatabaseRepository) Create(location string, config storage.Rep
 	defer statement.Close()
 	statement.Exec()
 
+	statement, err = repository.conn.Prepare(`CREATE TABLE IF NOT EXISTS signatures (
+		signatureUuid	VARCHAR(36) NOT NULL PRIMARY KEY,
+		signatureBlob	BLOB
+	);`)
+	if err != nil {
+		return err
+	}
+	defer statement.Close()
+	statement.Exec()
+
 	statement, err = repository.conn.Prepare(`CREATE TABLE IF NOT EXISTS metadatas (
 		metadataUuid	VARCHAR(36) NOT NULL PRIMARY KEY,
 		metadataBlob	BLOB
@@ -294,6 +304,21 @@ func (repository *DatabaseRepository) GetIndexes() ([]uuid.UUID, error) {
 	return indexes, nil
 }
 
+func (repository *DatabaseRepository) PutSignature(indexID uuid.UUID, data []byte) error {
+	statement, err := repository.conn.Prepare(`INSERT INTO signatures (signatureUuid, signatureBlob) VALUES(?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer statement.Close()
+
+	_, err = statement.Exec(indexID, data)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (repository *DatabaseRepository) PutMetadata(indexID uuid.UUID, data []byte) error {
 	statement, err := repository.conn.Prepare(`INSERT INTO metadatas (metadataUuid, metadataBlob) VALUES(?, ?)`)
 	if err != nil {
@@ -411,6 +436,15 @@ func (repository *DatabaseRepository) GetObjects() ([][32]byte, error) {
 	return checksums, nil
 }
 
+func (repository *DatabaseRepository) GetSignature(indexID uuid.UUID) ([]byte, error) {
+	var data []byte
+	err := repository.conn.QueryRow(`SELECT signatureBlob FROM signatures WHERE signatureUuid=?`, indexID).Scan(&data)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
 func (repository *DatabaseRepository) GetMetadata(indexID uuid.UUID) ([]byte, error) {
 	var data []byte
 	err := repository.conn.QueryRow(`SELECT metadataBlob FROM metadatas WHERE metadataUuid=?`, indexID).Scan(&data)
@@ -514,6 +548,21 @@ func (transaction *DatabaseTransaction) PutChunk(checksum [32]byte, data []byte)
 	_, err = statement.Exec(checksumToString(checksum), data)
 	if err != nil {
 		// if err is that it's already present, we should discard err and assume a concurrent write
+		return err
+	}
+
+	return nil
+}
+
+func (transaction *DatabaseTransaction) PutSignature(data []byte) error {
+	statement, err := transaction.dbTx.Prepare(`INSERT INTO signatures (signatureUuid, signatureBlob) VALUES(?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer statement.Close()
+
+	_, err = statement.Exec(transaction.GetUuid(), data)
+	if err != nil {
 		return err
 	}
 

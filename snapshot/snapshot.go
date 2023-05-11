@@ -3,9 +3,11 @@ package snapshot
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"time"
 
+	"github.com/ebfe/signify"
 	"github.com/google/uuid"
 	"github.com/poolpOrg/plakar/compression"
 	"github.com/poolpOrg/plakar/encryption"
@@ -19,6 +21,8 @@ type Snapshot struct {
 	repository  *storage.Repository
 	transaction *storage.Transaction
 
+	privateKey *signify.PrivateKey
+
 	SkipDirs []string
 
 	Metadata   *Metadata
@@ -26,7 +30,7 @@ type Snapshot struct {
 	Filesystem *Filesystem
 }
 
-func New(repository *storage.Repository, indexID uuid.UUID) (*Snapshot, error) {
+func New(repository *storage.Repository, indexID uuid.UUID, privateKey *signify.PrivateKey, publicKey *signify.PublicKey) (*Snapshot, error) {
 	t0 := time.Now()
 	defer func() {
 		profiler.RecordEvent("snapshot.Create", time.Since(t0))
@@ -41,7 +45,9 @@ func New(repository *storage.Repository, indexID uuid.UUID) (*Snapshot, error) {
 		repository:  repository,
 		transaction: tx,
 
-		Metadata:   NewMetadata(indexID),
+		privateKey: privateKey,
+
+		Metadata:   NewMetadata(indexID, publicKey),
 		Index:      NewIndex(),
 		Filesystem: NewFilesystem(),
 	}
@@ -56,9 +62,28 @@ func Load(repository *storage.Repository, indexID uuid.UUID) (*Snapshot, error) 
 		profiler.RecordEvent("snapshot.Load", time.Since(t0))
 	}()
 
-	metadata, _, err := GetMetadata(repository, indexID)
+	metadata, metadataChecksum, _, err := GetMetadata(repository, indexID)
 	if err != nil {
 		return nil, err
+	}
+
+	if metadata.PublicKey != "" {
+		signature, _, err := GetSignature(repository, indexID)
+		if err != nil {
+			return nil, fmt.Errorf("signed snapshot but couldn't load signature")
+		}
+
+		encodedKey, err := base64.RawStdEncoding.DecodeString(metadata.PublicKey)
+		if err != nil {
+			return nil, err
+		}
+		publicKey, err := signify.ParsePublicKey(encodedKey)
+		if err != nil {
+			return nil, err
+		}
+		if !signify.Verify(publicKey, metadataChecksum, signature) {
+			return nil, fmt.Errorf("snapshot signature mismatch")
+		}
 	}
 
 	index, checksum, err := GetIndex(repository, indexID)
@@ -88,10 +113,10 @@ func Load(repository *storage.Repository, indexID uuid.UUID) (*Snapshot, error) 
 	return snapshot, nil
 }
 
-func GetMetadata(repository *storage.Repository, indexID uuid.UUID) (*Metadata, bool, error) {
+func GetSignature(repository *storage.Repository, indexID uuid.UUID) (*signify.Signature, bool, error) {
 	t0 := time.Now()
 	defer func() {
-		profiler.RecordEvent("snapshot.GetMetada", time.Since(t0))
+		profiler.RecordEvent("snapshot.GetSignature", time.Since(t0))
 	}()
 
 	cache := repository.GetCache()
@@ -100,20 +125,20 @@ func GetMetadata(repository *storage.Repository, indexID uuid.UUID) (*Metadata, 
 
 	cacheMiss := false
 	if cache != nil {
-		logger.Trace("snapshot", "cache.GetMetadata(%s)", indexID)
-		tmp, err := cache.GetMetadata(repository.Configuration().RepositoryID.String(), indexID.String())
+		logger.Trace("snapshot", "cache.GetSignature(%s)", indexID)
+		tmp, err := cache.GetSignature(repository.Configuration().RepositoryID.String(), indexID.String())
 		if err != nil {
 			cacheMiss = true
-			logger.Trace("snapshot", "repository.GetMetadata(%s)", indexID)
-			tmp, err = repository.GetMetadata(indexID)
+			logger.Trace("snapshot", "repository.GetSignature(%s)", indexID)
+			tmp, err = repository.GetSignature(indexID)
 			if err != nil {
 				return nil, false, err
 			}
 		}
 		buffer = tmp
 	} else {
-		logger.Trace("snapshot", "repository.GetMetadata(%s)", indexID)
-		tmp, err := repository.GetMetadata(indexID)
+		logger.Trace("snapshot", "repository.GetSignature(%s)", indexID)
+		tmp, err := repository.GetSignature(indexID)
 		if err != nil {
 			return nil, false, err
 		}
@@ -121,8 +146,8 @@ func GetMetadata(repository *storage.Repository, indexID uuid.UUID) (*Metadata, 
 	}
 
 	if cache != nil && cacheMiss {
-		logger.Trace("snapshot", "cache.PutMetadata(%s)", indexID)
-		cache.PutMetadata(repository.Configuration().RepositoryID.String(), indexID.String(), buffer)
+		logger.Trace("snapshot", "cache.PutSignature(%s)", indexID)
+		cache.PutSignature(repository.Configuration().RepositoryID.String(), indexID.String(), buffer)
 	}
 
 	secret := repository.GetSecret()
@@ -142,12 +167,75 @@ func GetMetadata(repository *storage.Repository, indexID uuid.UUID) (*Metadata, 
 		buffer = tmp
 	}
 
-	metadata, err := NewMetadataFromBytes(buffer)
+	sig, err := signify.ParseSignature(buffer)
 	if err != nil {
 		return nil, false, err
 	}
+	return sig, false, nil
+}
 
-	return metadata, false, nil
+func GetMetadata(repository *storage.Repository, indexID uuid.UUID) (*Metadata, []byte, bool, error) {
+	t0 := time.Now()
+	defer func() {
+		profiler.RecordEvent("snapshot.GetMetada", time.Since(t0))
+	}()
+
+	cache := repository.GetCache()
+
+	var buffer []byte
+
+	cacheMiss := false
+	if cache != nil {
+		logger.Trace("snapshot", "cache.GetMetadata(%s)", indexID)
+		tmp, err := cache.GetMetadata(repository.Configuration().RepositoryID.String(), indexID.String())
+		if err != nil {
+			cacheMiss = true
+			logger.Trace("snapshot", "repository.GetMetadata(%s)", indexID)
+			tmp, err = repository.GetMetadata(indexID)
+			if err != nil {
+				return nil, nil, false, err
+			}
+		}
+		buffer = tmp
+	} else {
+		logger.Trace("snapshot", "repository.GetMetadata(%s)", indexID)
+		tmp, err := repository.GetMetadata(indexID)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		buffer = tmp
+	}
+
+	if cache != nil && cacheMiss {
+		logger.Trace("snapshot", "cache.PutMetadata(%s)", indexID)
+		cache.PutMetadata(repository.Configuration().RepositoryID.String(), indexID.String(), buffer)
+	}
+
+	secret := repository.GetSecret()
+	if secret != nil {
+		tmp, err := encryption.Decrypt(secret, buffer)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		buffer = tmp
+	}
+
+	if repository.Configuration().Compression != "" {
+		tmp, err := compression.Inflate(buffer)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		buffer = tmp
+	}
+
+	metadata, err := NewMetadataFromBytes(buffer)
+	if err != nil {
+		return nil, nil, false, err
+	}
+
+	checksum := sha256.Sum256(buffer)
+
+	return metadata, checksum[:], false, nil
 }
 
 func GetIndex(repository *storage.Repository, indexID uuid.UUID) (*Index, []byte, error) {
@@ -341,6 +429,41 @@ func (snapshot *Snapshot) PutObject(object *Object) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	return len(buffer), nil
+}
+
+func (snapshot *Snapshot) PutSignature(data []byte) (int, error) {
+	t0 := time.Now()
+	defer func() {
+		profiler.RecordEvent("snapshot.PutSignature", time.Since(t0))
+	}()
+	cache := snapshot.repository.GetCache()
+	logger.Trace("snapshot", "%s: PutSignature()", snapshot.Metadata.GetIndexShortID())
+	secret := snapshot.repository.GetSecret()
+
+	buffer := data
+
+	if snapshot.repository.Configuration().Compression != "" {
+		buffer = compression.Deflate(buffer)
+	}
+
+	if secret != nil {
+		tmp, err := encryption.Encrypt(secret, buffer)
+		if err != nil {
+			return 0, err
+		}
+		buffer = tmp
+	}
+
+	if cache != nil {
+		cache.PutSignature(snapshot.repository.Configuration().RepositoryID.String(), snapshot.Metadata.GetIndexID().String(), buffer)
+	}
+
+	err := snapshot.transaction.PutSignature(buffer)
+	if err != nil {
+		return 0, err
+	}
+
 	return len(buffer), nil
 }
 
@@ -573,6 +696,16 @@ func (snapshot *Snapshot) Commit() error {
 	_, err = snapshot.PutMetadata(serializedMetadata)
 	if err != nil {
 		return err
+	}
+
+	if snapshot.privateKey != nil {
+		metadataChecksum := sha256.Sum256(serializedMetadata)
+		fmt.Printf("IN PUT CHECKSUM: %x\n", metadataChecksum)
+		signature := signify.Sign(snapshot.privateKey, metadataChecksum[:])
+		_, err := snapshot.PutSignature(signify.MarshalSignature(signature))
+		if err != nil {
+			return err
+		}
 	}
 
 	logger.Trace("snapshot", "%s: Commit()", snapshot.Metadata.GetIndexShortID())

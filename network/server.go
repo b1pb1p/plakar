@@ -173,6 +173,26 @@ func handleConnection(rd io.Reader, wr io.Writer) {
 				}
 			}()
 
+		case "ReqGetSignature":
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				logger.Trace("%s: GetSignature(%s)", clientUuid, request.Payload.(ReqGetSignature).Uuid)
+				data, err := repository.GetSignature(request.Payload.(ReqGetSignature).Uuid)
+				result := Request{
+					Uuid: request.Uuid,
+					Type: "ResGetSignature",
+					Payload: ResGetSignature{
+						Data: data,
+						Err:  err,
+					},
+				}
+				err = encoder.Encode(&result)
+				if err != nil {
+					logger.Warn("%s", err)
+				}
+			}()
+
 		case "ReqGetMetadata":
 			wg.Add(1)
 			go func() {
@@ -225,6 +245,25 @@ func handleConnection(rd io.Reader, wr io.Writer) {
 					Payload: ResGetFilesystem{
 						Data: data,
 						Err:  err,
+					},
+				}
+				err = encoder.Encode(&result)
+				if err != nil {
+					logger.Warn("%s", err)
+				}
+			}()
+
+		case "ReqStorePutSignature":
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				logger.Trace("%s: PutSignature()", clientUuid)
+				err := repository.PutSignature(request.Payload.(ReqStorePutSignature).IndexID, request.Payload.(ReqStorePutSignature).Data)
+				result := Request{
+					Uuid: request.Uuid,
+					Type: "ResStorePutSignature",
+					Payload: ResStorePutSignature{
+						Err: err,
 					},
 				}
 				err = encoder.Encode(&result)
@@ -450,6 +489,27 @@ func handleConnection(rd io.Reader, wr io.Writer) {
 					Uuid: request.Uuid,
 					Type: "ResPutObject",
 					Payload: ResPutObject{
+						Err: err,
+					},
+				}
+				err = encoder.Encode(&result)
+				if err != nil {
+					logger.Warn("%s", err)
+				}
+			}()
+
+		case "ReqPutSignature":
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				logger.Trace("%s: PutSignature()", clientUuid)
+				txUuid := request.Payload.(ReqPutSignature).Transaction
+				tx := transactions[txUuid]
+				err := tx.PutSignature(request.Payload.(ReqPutSignature).Data)
+				result := Request{
+					Uuid: request.Uuid,
+					Type: "ResPutSignature",
+					Payload: ResPutSignature{
 						Err: err,
 					},
 				}

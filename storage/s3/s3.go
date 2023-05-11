@@ -199,6 +199,14 @@ func (repository *S3Repository) GetIndexes() ([]uuid.UUID, error) {
 	return ret, nil
 }
 
+func (repository *S3Repository) PutSignature(indexID uuid.UUID, data []byte) error {
+	_, err := repository.minioClient.PutObject(context.Background(), repository.bucketName, fmt.Sprintf("SIGNATURE:%s", indexID.String()), bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (repository *S3Repository) PutMetadata(indexID uuid.UUID, data []byte) error {
 	_, err := repository.minioClient.PutObject(context.Background(), repository.bucketName, fmt.Sprintf("METADATA:%s", indexID.String()), bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{})
 	if err != nil {
@@ -245,6 +253,28 @@ func (repository *S3Repository) GetObjects() ([][32]byte, error) {
 		}
 	}
 	return ret, nil
+}
+
+func (repository *S3Repository) GetSignature(indexID uuid.UUID) ([]byte, error) {
+	object, err := repository.minioClient.GetObject(context.Background(), repository.bucketName, fmt.Sprintf("SIGNATURE:%s", indexID.String()), minio.GetObjectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	stat, err := object.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	dataBytes := make([]byte, stat.Size)
+	_, err = object.Read(dataBytes)
+	if err != nil {
+		if err != io.EOF {
+			return nil, err
+		}
+	}
+	object.Close()
+
+	return dataBytes, nil
 }
 
 func (repository *S3Repository) GetMetadata(indexID uuid.UUID) ([]byte, error) {
@@ -464,6 +494,15 @@ func (transaction *S3Transaction) PutObject(checksum [32]byte, data []byte) erro
 
 func (transaction *S3Transaction) PutChunk(checksum [32]byte, data []byte) error {
 	fmt.Println("tx.PutChunk")
+	return nil
+}
+
+func (transaction *S3Transaction) PutSignature(data []byte) error {
+	repository := transaction.repository
+	_, err := repository.minioClient.PutObject(context.Background(), repository.bucketName, fmt.Sprintf("SIGNATURE:%s", transaction.Uuid.String()), bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{})
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

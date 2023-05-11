@@ -200,6 +200,15 @@ func (repository *FSRepository) GetIndexes() ([]uuid.UUID, error) {
 	return ret, nil
 }
 
+func (repository *FSRepository) GetSignature(indexID uuid.UUID) ([]byte, error) {
+	data, err := ioutil.ReadFile(fmt.Sprintf("%s/SIGNATURE", repository.PathIndex(indexID)))
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
+}
+
 func (repository *FSRepository) GetMetadata(indexID uuid.UUID) ([]byte, error) {
 	data, err := ioutil.ReadFile(fmt.Sprintf("%s/METADATA", repository.PathIndex(indexID)))
 	if err != nil {
@@ -225,6 +234,23 @@ func (repository *FSRepository) GetFilesystem(indexID uuid.UUID) ([]byte, error)
 	}
 
 	return data, nil
+}
+
+func (repository *FSRepository) PutSignature(indexID uuid.UUID, data []byte) error {
+	os.Mkdir(repository.PathIndexBucket(indexID), 0700)
+	os.Mkdir(repository.PathIndex(indexID), 0700)
+
+	f, err := os.Create(fmt.Sprintf("%s/SIGNATURE", repository.PathIndex(indexID)))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = f.Write(data)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (repository *FSRepository) PutMetadata(indexID uuid.UUID, data []byte) error {
@@ -542,56 +568,56 @@ func (repository *FSRepository) Close() error {
 }
 
 /*
-func (repository *FSRepository) Tidy() {
-	wg := sync.WaitGroup{}
-	concurrency := make(chan bool, runtime.NumCPU()*2+1)
-	cwalk.Walk(repository.PathObjects(), func(path string, f os.FileInfo, err error) error {
-		if err != nil {
-			log.Fatal(err)
-		}
-		object := fmt.Sprintf("%s/%s", repository.PathObjects(), path)
-		if filepath.Clean(object) == filepath.Clean(repository.PathObjects()) {
+	func (repository *FSRepository) Tidy() {
+		wg := sync.WaitGroup{}
+		concurrency := make(chan bool, runtime.NumCPU()*2+1)
+		cwalk.Walk(repository.PathObjects(), func(path string, f os.FileInfo, err error) error {
+			if err != nil {
+				log.Fatal(err)
+			}
+			object := fmt.Sprintf("%s/%s", repository.PathObjects(), path)
+			if filepath.Clean(object) == filepath.Clean(repository.PathObjects()) {
+				return nil
+			}
+			if !f.IsDir() {
+				concurrency <- true
+				wg.Add(1)
+				go func(object string) {
+					defer func() { <-concurrency }()
+					defer func() { wg.Done() }()
+					if f.Sys().(*syscall.Stat_t).Nlink == 1 {
+						os.Remove(object)
+					}
+				}(object)
+			}
 			return nil
-		}
-		if !f.IsDir() {
-			concurrency <- true
-			wg.Add(1)
-			go func(object string) {
-				defer func() { <-concurrency }()
-				defer func() { wg.Done() }()
-				if f.Sys().(*syscall.Stat_t).Nlink == 1 {
-					os.Remove(object)
-				}
-			}(object)
-		}
-		return nil
-	})
-	wg.Wait()
+		})
+		wg.Wait()
 
-	cwalk.Walk(repository.PathChunks(), func(path string, f os.FileInfo, err error) error {
-		if err != nil {
-			log.Fatal(err)
-		}
-		chunk := fmt.Sprintf("%s/%s", repository.PathChunks(), path)
-		if filepath.Clean(chunk) == filepath.Clean(repository.PathChunks()) {
+		cwalk.Walk(repository.PathChunks(), func(path string, f os.FileInfo, err error) error {
+			if err != nil {
+				log.Fatal(err)
+			}
+			chunk := fmt.Sprintf("%s/%s", repository.PathChunks(), path)
+			if filepath.Clean(chunk) == filepath.Clean(repository.PathChunks()) {
+				return nil
+			}
+
+			if !f.IsDir() {
+				concurrency <- true
+				wg.Add(1)
+				go func(chunk string) {
+					defer func() { <-concurrency }()
+					defer func() { wg.Done() }()
+					if f.Sys().(*syscall.Stat_t).Nlink == 1 {
+						os.Remove(chunk)
+					}
+				}(chunk)
+			}
 			return nil
-		}
-
-		if !f.IsDir() {
-			concurrency <- true
-			wg.Add(1)
-			go func(chunk string) {
-				defer func() { <-concurrency }()
-				defer func() { wg.Done() }()
-				if f.Sys().(*syscall.Stat_t).Nlink == 1 {
-					os.Remove(chunk)
-				}
-			}(chunk)
-		}
-		return nil
-	})
-	wg.Wait()
-}
+		})
+		wg.Wait()
+	}
 */
 func (transaction *FSTransaction) GetUuid() uuid.UUID {
 	return transaction.Uuid
@@ -602,6 +628,21 @@ func (transaction *FSTransaction) prepare() {
 	os.MkdirAll(fmt.Sprintf("%s/%s", transaction.repository.PathTransactions(),
 		transaction.Uuid[0:2]), 0700)
 	os.MkdirAll(transaction.Path(), 0700)
+}
+
+func (transaction *FSTransaction) PutSignature(data []byte) error {
+	f, err := os.Create(fmt.Sprintf("%s/SIGNATURE", transaction.Path()))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = f.Write(data)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (transaction *FSTransaction) PutMetadata(data []byte) error {

@@ -78,7 +78,7 @@ func getMetadatas(repository *storage.Repository, prefixes []string) ([]*snapsho
 			wg.Add(1)
 			go func(snapshotUuid uuid.UUID) {
 				defer wg.Done()
-				metadata, _, err := snapshot.GetMetadata(repository, snapshotUuid)
+				metadata, _, _, err := snapshot.GetMetadata(repository, snapshotUuid)
 				if err != nil {
 					fmt.Println(err)
 					return
@@ -113,7 +113,7 @@ func getMetadatas(repository *storage.Repository, prefixes []string) ([]*snapsho
 
 		for _, snapshotUuid := range snapshotsList {
 			if strings.HasPrefix(snapshotUuid.String(), parsedUuidPrefix) {
-				metadata, _, err := snapshot.GetMetadata(repository, snapshotUuid)
+				metadata, _, _, err := snapshot.GetMetadata(repository, snapshotUuid)
 				if err != nil {
 					return nil, err
 				}

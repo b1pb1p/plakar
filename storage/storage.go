@@ -50,6 +50,9 @@ type RepositoryBackend interface {
 	Transaction(indexID uuid.UUID) (TransactionBackend, error)
 
 	GetIndexes() ([]uuid.UUID, error)
+
+	GetSignature(indexID uuid.UUID) ([]byte, error)
+	PutSignature(indexID uuid.UUID, data []byte) error
 	GetMetadata(indexID uuid.UUID) ([]byte, error)
 	PutMetadata(indexID uuid.UUID, data []byte) error
 	GetIndex(indexID uuid.UUID) ([]byte, error)
@@ -80,6 +83,7 @@ type TransactionBackend interface {
 	PutObject(checksum [32]byte, data []byte) error
 	PutChunk(checksum [32]byte, data []byte) error
 
+	PutSignature(data []byte) error
 	PutMetadata(data []byte) error
 	PutIndex(data []byte) error
 	PutFilesystem(data []byte) error
@@ -286,6 +290,16 @@ func (repository *Repository) GetIndexes() ([]uuid.UUID, error) {
 	return repository.backend.GetIndexes()
 }
 
+func (repository *Repository) GetSignature(indexID uuid.UUID) ([]byte, error) {
+	t0 := time.Now()
+	defer func() {
+		profiler.RecordEvent("storage.GetSignature", time.Since(t0))
+		logger.Trace("storage", "GetSignature(%s): %s", indexID, time.Since(t0))
+	}()
+
+	return repository.backend.GetSignature(indexID)
+}
+
 func (repository *Repository) GetMetadata(indexID uuid.UUID) ([]byte, error) {
 	t0 := time.Now()
 	defer func() {
@@ -312,6 +326,16 @@ func (repository *Repository) GetFilesystem(indexID uuid.UUID) ([]byte, error) {
 		logger.Trace("storage", "GetFilesystem(%s): %s", indexID, time.Since(t0))
 	}()
 	return repository.backend.GetFilesystem(indexID)
+}
+
+func (repository *Repository) PutSignature(indexID uuid.UUID, data []byte) error {
+	t0 := time.Now()
+	defer func() {
+		profiler.RecordEvent("storage.PutSignature", time.Since(t0))
+		logger.Trace("storage", "PutSignature(%s): %s", indexID, time.Since(t0))
+	}()
+
+	return repository.backend.PutSignature(indexID, data)
 }
 
 func (repository *Repository) PutMetadata(indexID uuid.UUID, data []byte) error {
@@ -456,6 +480,16 @@ func (repository *Repository) Close() error {
 
 func (transaction *Transaction) GetUuid() uuid.UUID {
 	return transaction.backend.GetUuid()
+}
+
+func (transaction *Transaction) PutSignature(data []byte) error {
+	t0 := time.Now()
+	defer func() {
+		profiler.RecordEvent("storage.tx.PutSignature", time.Since(t0))
+		logger.Trace("storage", "%s.PutSignature() <- %d bytes: %s", transaction.GetUuid(), len(data), time.Since(t0))
+	}()
+
+	return transaction.backend.PutSignature(data)
 }
 
 func (transaction *Transaction) PutMetadata(data []byte) error {
