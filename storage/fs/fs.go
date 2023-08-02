@@ -626,7 +626,7 @@ func (transaction *FSTransaction) GetUuid() uuid.UUID {
 func (transaction *FSTransaction) prepare() {
 	os.MkdirAll(transaction.repository.root, 0700)
 	os.MkdirAll(fmt.Sprintf("%s/%s", transaction.repository.PathTransactions(),
-		transaction.Uuid[0:2]), 0700)
+		transaction.Uuid.String()[0:2]), 0700)
 	os.MkdirAll(transaction.Path(), 0700)
 }
 

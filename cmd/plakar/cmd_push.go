@@ -40,9 +40,12 @@ func init() {
 func cmd_push(ctx Plakar, repository *storage.Repository, args []string) int {
 	var opt_progress bool
 	var opt_signkey string
+	var opt_tags string
+
 	flags := flag.NewFlagSet("push", flag.ExitOnError)
 	flags.BoolVar(&opt_progress, "progress", false, "display progress bar")
 	flags.StringVar(&opt_signkey, "sign", "", "keyfile to use for snapshot signing")
+	flags.StringVar(&opt_tags, "tag", "", "tag to assign to this snapshot")
 	flags.Parse(args)
 
 	dir, err := os.Getwd()
@@ -111,6 +114,14 @@ func cmd_push(ctx Plakar, repository *storage.Repository, args []string) int {
 	snap.Metadata.OperatingSystem = runtime.GOOS
 	snap.Metadata.MachineID = ctx.MachineID
 	snap.Metadata.CommandLine = ctx.CommandLine
+
+	var tags []string
+	if opt_tags == "" {
+		tags = []string{}
+	} else {
+		tags = []string{opt_tags}
+	}
+	snap.Metadata.Tags = tags
 
 	if flags.NArg() == 0 {
 		err = snap.Push([]string{dir}, opt_progress)

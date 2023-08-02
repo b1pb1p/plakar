@@ -24,8 +24,12 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/poolpOrg/plakar/filesystem"
+	"github.com/poolpOrg/plakar/index"
+	"github.com/poolpOrg/plakar/metadata"
 	"github.com/poolpOrg/plakar/snapshot"
 	"github.com/poolpOrg/plakar/storage"
 )
@@ -62,13 +66,13 @@ func getSnapshotsList(repository *storage.Repository) ([]uuid.UUID, error) {
 	return snapshots, nil
 }
 
-func getMetadatas(repository *storage.Repository, prefixes []string) ([]*snapshot.Metadata, error) {
+func getMetadatas(repository *storage.Repository, prefixes []string) ([]*metadata.Metadata, error) {
 	snapshotsList, err := getSnapshotsList(repository)
 	if err != nil {
 		return nil, err
 	}
 
-	result := make([]*snapshot.Metadata, 0)
+	result := make([]*metadata.Metadata, 0)
 
 	// no prefixes, this is a full fetch
 	if prefixes == nil {
@@ -95,6 +99,25 @@ func getMetadatas(repository *storage.Repository, prefixes []string) ([]*snapsho
 		return result, nil
 	}
 
+	tags := make(map[string]uuid.UUID)
+	tagsTimestamp := make(map[string]time.Time)
+
+	for _, snapshotUuid := range snapshotsList {
+		metadata, _, _, err := snapshot.GetMetadata(repository, snapshotUuid)
+		if err != nil {
+			return nil, err
+		}
+		for _, tag := range metadata.Tags {
+			if recordTime, exists := tagsTimestamp[tag]; !exists {
+				tags[tag] = snapshotUuid
+				tagsTimestamp[tag] = metadata.CreationTime
+			} else if recordTime.Before(metadata.CreationTime) {
+				tags[tag] = snapshotUuid
+				tagsTimestamp[tag] = metadata.CreationTime
+			}
+		}
+	}
+
 	// prefixes, preprocess snapshots to only fetch necessary ones
 	for _, prefix := range prefixes {
 		parsedUuidPrefix, _ := parseSnapshotID(prefix)
@@ -106,13 +129,15 @@ func getMetadatas(repository *storage.Repository, prefixes []string) ([]*snapsho
 			}
 		}
 		if matches == 0 {
-			log.Fatalf("%s: no snapshot has prefix: %s", flag.CommandLine.Name(), prefix)
+			if _, exists := tags[parsedUuidPrefix]; !exists {
+				log.Fatalf("%s: no snapshot has prefix: %s", flag.CommandLine.Name(), parsedUuidPrefix)
+			}
 		} else if matches > 1 {
 			log.Fatalf("%s: snapshot ID is ambiguous: %s (matches %d snapshots)", flag.CommandLine.Name(), prefix, matches)
 		}
 
 		for _, snapshotUuid := range snapshotsList {
-			if strings.HasPrefix(snapshotUuid.String(), parsedUuidPrefix) {
+			if strings.HasPrefix(snapshotUuid.String(), parsedUuidPrefix) || snapshotUuid == tags[parsedUuidPrefix] {
 				metadata, _, _, err := snapshot.GetMetadata(repository, snapshotUuid)
 				if err != nil {
 					return nil, err
@@ -124,13 +149,13 @@ func getMetadatas(repository *storage.Repository, prefixes []string) ([]*snapsho
 	return result, nil
 }
 
-func getIndexes(repository *storage.Repository, prefixes []string) ([]*snapshot.Index, error) {
+func getIndexes(repository *storage.Repository, prefixes []string) ([]*index.Index, error) {
 	snapshotsList, err := getSnapshotsList(repository)
 	if err != nil {
 		return nil, err
 	}
 
-	result := make([]*snapshot.Index, 0)
+	result := make([]*index.Index, 0)
 
 	// no prefixes, this is a full fetch
 	if prefixes == nil {
@@ -154,6 +179,25 @@ func getIndexes(repository *storage.Repository, prefixes []string) ([]*snapshot.
 		return result, nil
 	}
 
+	tags := make(map[string]uuid.UUID)
+	tagsTimestamp := make(map[string]time.Time)
+
+	for _, snapshotUuid := range snapshotsList {
+		metadata, _, _, err := snapshot.GetMetadata(repository, snapshotUuid)
+		if err != nil {
+			return nil, err
+		}
+		for _, tag := range metadata.Tags {
+			if recordTime, exists := tagsTimestamp[tag]; !exists {
+				tags[tag] = snapshotUuid
+				tagsTimestamp[tag] = metadata.CreationTime
+			} else if recordTime.Before(metadata.CreationTime) {
+				tags[tag] = snapshotUuid
+				tagsTimestamp[tag] = metadata.CreationTime
+			}
+		}
+	}
+
 	// prefixes, preprocess snapshots to only fetch necessary ones
 	for _, prefix := range prefixes {
 		parsedUuidPrefix, _ := parseSnapshotID(prefix)
@@ -165,13 +209,15 @@ func getIndexes(repository *storage.Repository, prefixes []string) ([]*snapshot.
 			}
 		}
 		if matches == 0 {
-			log.Fatalf("%s: no snapshot has prefix: %s", flag.CommandLine.Name(), prefix)
+			if _, exists := tags[parsedUuidPrefix]; !exists {
+				log.Fatalf("%s: no snapshot has prefix: %s", flag.CommandLine.Name(), parsedUuidPrefix)
+			}
 		} else if matches > 1 {
 			log.Fatalf("%s: snapshot ID is ambiguous: %s (matches %d snapshots)", flag.CommandLine.Name(), prefix, matches)
 		}
 
 		for _, snapshotUuid := range snapshotsList {
-			if strings.HasPrefix(snapshotUuid.String(), parsedUuidPrefix) {
+			if strings.HasPrefix(snapshotUuid.String(), parsedUuidPrefix) || snapshotUuid == tags[parsedUuidPrefix] {
 				index, _, err := snapshot.GetIndex(repository, snapshotUuid)
 				if err != nil {
 					return nil, err
@@ -183,13 +229,13 @@ func getIndexes(repository *storage.Repository, prefixes []string) ([]*snapshot.
 	return result, nil
 }
 
-func getFilesystems(repository *storage.Repository, prefixes []string) ([]*snapshot.Filesystem, error) {
+func getFilesystems(repository *storage.Repository, prefixes []string) ([]*filesystem.Filesystem, error) {
 	snapshotsList, err := getSnapshotsList(repository)
 	if err != nil {
 		return nil, err
 	}
 
-	result := make([]*snapshot.Filesystem, 0)
+	result := make([]*filesystem.Filesystem, 0)
 
 	// no prefixes, this is a full fetch
 	if prefixes == nil {
@@ -213,6 +259,25 @@ func getFilesystems(repository *storage.Repository, prefixes []string) ([]*snaps
 		return result, nil
 	}
 
+	tags := make(map[string]uuid.UUID)
+	tagsTimestamp := make(map[string]time.Time)
+
+	for _, snapshotUuid := range snapshotsList {
+		metadata, _, _, err := snapshot.GetMetadata(repository, snapshotUuid)
+		if err != nil {
+			return nil, err
+		}
+		for _, tag := range metadata.Tags {
+			if recordTime, exists := tagsTimestamp[tag]; !exists {
+				tags[tag] = snapshotUuid
+				tagsTimestamp[tag] = metadata.CreationTime
+			} else if recordTime.Before(metadata.CreationTime) {
+				tags[tag] = snapshotUuid
+				tagsTimestamp[tag] = metadata.CreationTime
+			}
+		}
+	}
+
 	// prefixes, preprocess snapshots to only fetch necessary ones
 	for _, prefix := range prefixes {
 		parsedUuidPrefix, _ := parseSnapshotID(prefix)
@@ -224,13 +289,15 @@ func getFilesystems(repository *storage.Repository, prefixes []string) ([]*snaps
 			}
 		}
 		if matches == 0 {
-			log.Fatalf("%s: no snapshot has prefix: %s", flag.CommandLine.Name(), prefix)
+			if _, exists := tags[parsedUuidPrefix]; !exists {
+				log.Fatalf("%s: no snapshot has prefix: %s", flag.CommandLine.Name(), parsedUuidPrefix)
+			}
 		} else if matches > 1 {
 			log.Fatalf("%s: snapshot ID is ambiguous: %s (matches %d snapshots)", flag.CommandLine.Name(), prefix, matches)
 		}
 
 		for _, snapshotUuid := range snapshotsList {
-			if strings.HasPrefix(snapshotUuid.String(), parsedUuidPrefix) {
+			if strings.HasPrefix(snapshotUuid.String(), parsedUuidPrefix) || snapshotUuid == tags[parsedUuidPrefix] {
 				filesystem, _, err := snapshot.GetFilesystem(repository, snapshotUuid)
 				if err != nil {
 					return nil, err
@@ -271,6 +338,25 @@ func getSnapshots(repository *storage.Repository, prefixes []string) ([]*snapsho
 		return sortSnapshotsByDate(result), nil
 	}
 
+	tags := make(map[string]uuid.UUID)
+	tagsTimestamp := make(map[string]time.Time)
+
+	for _, snapshotUuid := range snapshotsList {
+		metadata, _, _, err := snapshot.GetMetadata(repository, snapshotUuid)
+		if err != nil {
+			return nil, err
+		}
+		for _, tag := range metadata.Tags {
+			if recordTime, exists := tagsTimestamp[tag]; !exists {
+				tags[tag] = snapshotUuid
+				tagsTimestamp[tag] = metadata.CreationTime
+			} else if recordTime.Before(metadata.CreationTime) {
+				tags[tag] = snapshotUuid
+				tagsTimestamp[tag] = metadata.CreationTime
+			}
+		}
+	}
+
 	// prefixes, preprocess snapshots to only fetch necessary ones
 	for _, prefix := range prefixes {
 		parsedUuidPrefix, _ := parseSnapshotID(prefix)
@@ -282,13 +368,15 @@ func getSnapshots(repository *storage.Repository, prefixes []string) ([]*snapsho
 			}
 		}
 		if matches == 0 {
-			log.Fatalf("%s: no snapshot has prefix: %s", flag.CommandLine.Name(), prefix)
+			if _, exists := tags[parsedUuidPrefix]; !exists {
+				log.Fatalf("%s: no snapshot has prefix: %s", flag.CommandLine.Name(), parsedUuidPrefix)
+			}
 		} else if matches > 1 {
 			log.Fatalf("%s: snapshot ID is ambiguous: %s (matches %d snapshots)", flag.CommandLine.Name(), prefix, matches)
 		}
 
 		for _, snapshotUuid := range snapshotsList {
-			if strings.HasPrefix(snapshotUuid.String(), parsedUuidPrefix) {
+			if strings.HasPrefix(snapshotUuid.String(), parsedUuidPrefix) || snapshotUuid == tags[parsedUuidPrefix] {
 				snapshotInstance, err := snapshot.Load(repository, snapshotUuid)
 				if err != nil {
 					return nil, err

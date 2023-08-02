@@ -10,6 +10,8 @@ import (
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
 	"github.com/jacobsa/fuse/fuseutil"
+	"github.com/poolpOrg/plakar/filesystem"
+	"github.com/poolpOrg/plakar/metadata"
 	"github.com/poolpOrg/plakar/snapshot"
 	"github.com/poolpOrg/plakar/storage"
 )
@@ -89,7 +91,7 @@ func (fs *plakarFS) getInode(pathname string) (fuseops.InodeID, bool) {
 	return entry.(fuseops.InodeID), true
 }
 
-func (fs *plakarFS) getMetadata(snapshotID uuid.UUID) (*snapshot.Metadata, error) {
+func (fs *plakarFS) getMetadata(snapshotID uuid.UUID) (*metadata.Metadata, error) {
 	entry, exists := fs.metadataCache.Load(snapshotID)
 	if !exists {
 		md, _, _, err := snapshot.GetMetadata(fs.repository, snapshotID)
@@ -99,10 +101,10 @@ func (fs *plakarFS) getMetadata(snapshotID uuid.UUID) (*snapshot.Metadata, error
 		fs.metadataCache.Store(snapshotID, md)
 		return md, err
 	}
-	return entry.(*snapshot.Metadata), nil
+	return entry.(*metadata.Metadata), nil
 }
 
-func (fs *plakarFS) getFilesystem(snapshotID uuid.UUID) (*snapshot.Filesystem, error) {
+func (fs *plakarFS) getFilesystem(snapshotID uuid.UUID) (*filesystem.Filesystem, error) {
 	entry, exists := fs.fsCache.Load(snapshotID)
 	if !exists {
 		filesystem, _, err := snapshot.GetFilesystem(fs.repository, snapshotID)
@@ -112,7 +114,7 @@ func (fs *plakarFS) getFilesystem(snapshotID uuid.UUID) (*snapshot.Filesystem, e
 		fs.fsCache.Store(snapshotID, filesystem)
 		return filesystem, err
 	}
-	return entry.(*snapshot.Filesystem), nil
+	return entry.(*filesystem.Filesystem), nil
 }
 
 func (fs *plakarFS) getAttributes(id fuseops.InodeID) (fuseops.InodeAttributes, error) {
