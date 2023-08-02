@@ -34,6 +34,9 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/poolpOrg/plakar/filesystem"
+	"github.com/poolpOrg/plakar/metadata"
+	"github.com/poolpOrg/plakar/objects"
 	"github.com/poolpOrg/plakar/snapshot"
 	"github.com/poolpOrg/plakar/storage"
 
@@ -63,7 +66,7 @@ var searchTemplate string
 var templates map[string]*template.Template
 
 type SnapshotSummary struct {
-	Metadata *snapshot.Metadata
+	Metadata *metadata.Metadata
 
 	Roots       uint64
 	Directories uint64
@@ -120,13 +123,13 @@ func getSnapshots(repository *storage.Repository) ([]*snapshot.Snapshot, error) 
 	return result, nil
 }
 
-func getMetadatas(repository *storage.Repository) ([]*snapshot.Metadata, error) {
+func getMetadatas(repository *storage.Repository) ([]*metadata.Metadata, error) {
 	snapshotsList, err := snapshot.List(repository)
 	if err != nil {
 		return nil, err
 	}
 
-	result := make([]*snapshot.Metadata, 0)
+	result := make([]*metadata.Metadata, 0)
 
 	wg := sync.WaitGroup{}
 	mu := sync.Mutex{}
@@ -182,7 +185,7 @@ func viewRepository(w http.ResponseWriter, r *http.Request) {
 	typesPct := make(map[string]float64)
 	extensionsPct := make(map[string]float64)
 
-	res := make([]*snapshot.Metadata, 0)
+	res := make([]*metadata.Metadata, 0)
 	for _, metadata := range metadatas {
 		res = append(res, metadata)
 		totalFiles += metadata.FilesCount
@@ -223,7 +226,7 @@ func viewRepository(w http.ResponseWriter, r *http.Request) {
 
 	ctx := &struct {
 		Repository    storage.RepositoryConfig
-		Metadatas     []*snapshot.Metadata
+		Metadatas     []*metadata.Metadata
 		MajorTypes    map[string]uint64
 		MimeTypes     map[string]uint64
 		Extensions    map[string]uint64
@@ -272,11 +275,11 @@ func browse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	directories := make([]*snapshot.Fileinfo, 0)
-	files := make([]*snapshot.Fileinfo, 0)
-	symlinks := make([]*snapshot.Fileinfo, 0)
+	directories := make([]*filesystem.Fileinfo, 0)
+	files := make([]*filesystem.Fileinfo, 0)
+	symlinks := make([]*filesystem.Fileinfo, 0)
 	symlinksResolve := make(map[string]string)
-	others := make([]*snapshot.Fileinfo, 0)
+	others := make([]*filesystem.Fileinfo, 0)
 
 	children, _ := snap.Filesystem.LookupChildren(path)
 	for _, childname := range children {
@@ -319,11 +322,11 @@ func browse(w http.ResponseWriter, r *http.Request) {
 
 	ctx := &struct {
 		Snapshot        *snapshot.Snapshot
-		Directories     []*snapshot.Fileinfo
-		Files           []*snapshot.Fileinfo
-		Symlinks        []*snapshot.Fileinfo
+		Directories     []*filesystem.Fileinfo
+		Files           []*filesystem.Fileinfo
+		Symlinks        []*filesystem.Fileinfo
 		SymlinksResolve map[string]string
-		Others          []*snapshot.Fileinfo
+		Others          []*filesystem.Fileinfo
 		Path            string
 		Scanned         []string
 		Navigation      []string
@@ -359,7 +362,7 @@ func object(w http.ResponseWriter, r *http.Request) {
 
 	info, _ := snap.Filesystem.LookupInode(path)
 
-	chunks := make([]*snapshot.Chunk, 0)
+	chunks := make([]*objects.Chunk, 0)
 	for _, chunkChecksum := range object.Chunks {
 		chunks = append(chunks, snap.Index.LookupChunk(chunkChecksum))
 	}
@@ -392,9 +395,9 @@ func object(w http.ResponseWriter, r *http.Request) {
 
 	ctx := &struct {
 		Snapshot        *snapshot.Snapshot
-		Object          *snapshot.Object
-		Chunks          []*snapshot.Chunk
-		Info            *snapshot.Fileinfo
+		Object          *objects.Object
+		Chunks          []*objects.Chunk
+		Info            *filesystem.Fileinfo
 		Root            string
 		Path            string
 		Navigation      []string

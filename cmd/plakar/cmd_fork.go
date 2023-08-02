@@ -18,61 +18,39 @@ package main
 
 import (
 	"flag"
-	"io"
-	"os"
+	"log"
 
-	"github.com/poolpOrg/plakar/logger"
+	"github.com/poolpOrg/plakar/snapshot"
 	"github.com/poolpOrg/plakar/storage"
 )
 
 func init() {
-	registerCommand("cat", cmd_cat)
+	registerCommand("fork", cmd_fork)
 }
 
-func cmd_cat(ctx Plakar, repository *storage.Repository, args []string) int {
-	flags := flag.NewFlagSet("cat", flag.ExitOnError)
+func cmd_fork(ctx Plakar, repository *storage.Repository, args []string) int {
+
+	flags := flag.NewFlagSet("fork", flag.ExitOnError)
 	flags.Parse(args)
 
-	if flags.NArg() == 0 {
-		logger.Error("%s: at least one parameter is required", flags.Name())
-		return 1
+	if len(args) != 1 {
+		log.Fatal("need a snapshot ID to fork")
+		return info_plakar(repository)
 	}
 
 	snapshots, err := getSnapshots(repository, flags.Args())
 	if err != nil {
-		logger.Error("%s: could not obtain snapshots list: %s", flags.Name(), err)
-		return 1
+		log.Fatal(err)
 	}
 
-	errors := 0
-	for offset, snapshot := range snapshots {
-		_, pathname := parseSnapshotID(flags.Args()[offset])
-
-		if pathname == "" {
-			logger.Error("%s: missing filename for snapshot %s", flags.Name(), snapshot.Metadata.GetIndexShortID())
-			errors++
-			continue
-		}
-
-		rd, err := snapshot.NewReader(pathname)
+	for _, snap := range snapshots {
+		nsnap, err := snapshot.Fork(repository, snap.Metadata.IndexID)
 		if err != nil {
-			logger.Error("%s: %s: %s", flags.Name(), pathname, err)
-			errors++
-			continue
+			log.Fatal(err)
 		}
-
-		var outRd io.ReadCloser = rd
-
-		_, err = io.Copy(os.Stdout, outRd)
-		if err != nil {
-			logger.Error("%s: %s: %s", flags.Name(), pathname, err)
-			errors++
-			continue
+		if err := nsnap.Commit(); err != nil {
+			log.Fatal(err)
 		}
-	}
-
-	if errors != 0 {
-		return 1
 	}
 	return 0
 }

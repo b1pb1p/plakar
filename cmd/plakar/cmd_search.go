@@ -66,7 +66,7 @@ func cmd_search(ctx Plakar, repository *storage.Repository, args []string) int {
 				for contentType := range snap.Index.ContentTypes {
 					if strings.HasPrefix(contentType, "text/") {
 						for _, object := range snap.Index.LookupObjectsForContentType(contentType) {
-							objectID, _ := snap.Index.GetChecksumID(object)
+							objectID, _ := snap.Index.ChecksumToId(object)
 							for _, pathnameID := range snap.Index.ObjectToPathnames[objectID] {
 								_pathname, _ := snap.Index.GetPathname(pathnameID)
 

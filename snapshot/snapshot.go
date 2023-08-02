@@ -9,7 +9,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/poolpOrg/plakar/compression"
 	"github.com/poolpOrg/plakar/encryption"
+	"github.com/poolpOrg/plakar/filesystem"
+	"github.com/poolpOrg/plakar/index"
 	"github.com/poolpOrg/plakar/logger"
+	"github.com/poolpOrg/plakar/metadata"
+	"github.com/poolpOrg/plakar/objects"
 	"github.com/poolpOrg/plakar/profiler"
 	"github.com/poolpOrg/plakar/storage"
 	"github.com/vmihailenco/msgpack/v5"
@@ -21,9 +25,9 @@ type Snapshot struct {
 
 	SkipDirs []string
 
-	Metadata   *Metadata
-	Index      *Index
-	Filesystem *Filesystem
+	Metadata   *metadata.Metadata
+	Index      *index.Index
+	Filesystem *filesystem.Filesystem
 }
 
 func New(repository *storage.Repository, indexID uuid.UUID) (*Snapshot, error) {
@@ -41,9 +45,9 @@ func New(repository *storage.Repository, indexID uuid.UUID) (*Snapshot, error) {
 		repository:  repository,
 		transaction: tx,
 
-		Metadata:   NewMetadata(indexID),
-		Index:      NewIndex(),
-		Filesystem: NewFilesystem(),
+		Metadata:   metadata.NewMetadata(indexID),
+		Index:      index.NewIndex(),
+		Filesystem: filesystem.NewFilesystem(),
 	}
 
 	logger.Trace("snapshot", "%s: New()", snapshot.Metadata.GetIndexShortID())
@@ -88,7 +92,54 @@ func Load(repository *storage.Repository, indexID uuid.UUID) (*Snapshot, error) 
 	return snapshot, nil
 }
 
-func GetMetadata(repository *storage.Repository, indexID uuid.UUID) (*Metadata, bool, error) {
+func Fork(repository *storage.Repository, indexID uuid.UUID) (*Snapshot, error) {
+	t0 := time.Now()
+	defer func() {
+		profiler.RecordEvent("snapshot.Fork", time.Since(t0))
+	}()
+
+	metadata, _, err := GetMetadata(repository, indexID)
+	if err != nil {
+		return nil, err
+	}
+
+	index, checksum, err := GetIndex(repository, indexID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !bytes.Equal(checksum, metadata.IndexChecksum) {
+		return nil, fmt.Errorf("index mismatches metadata checksum")
+	}
+
+	filesystem, checksum, err := GetFilesystem(repository, indexID)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(checksum, metadata.FilesystemChecksum) {
+		return nil, fmt.Errorf("filesystem mismatches metadata checksum")
+	}
+
+	tx, err := repository.Transaction(uuid.Must(uuid.NewRandom()))
+	if err != nil {
+		return nil, err
+	}
+
+	snapshot := &Snapshot{
+		repository:  repository,
+		transaction: tx,
+
+		Metadata:   metadata,
+		Index:      index,
+		Filesystem: filesystem,
+	}
+	snapshot.Metadata.IndexID = tx.GetUuid()
+
+	logger.Trace("snapshot", "%s: Fork(): %s", indexID, snapshot.Metadata.GetIndexShortID())
+	return snapshot, nil
+}
+
+func GetMetadata(repository *storage.Repository, indexID uuid.UUID) (*metadata.Metadata, bool, error) {
 	t0 := time.Now()
 	defer func() {
 		profiler.RecordEvent("snapshot.GetMetada", time.Since(t0))
@@ -142,7 +193,7 @@ func GetMetadata(repository *storage.Repository, indexID uuid.UUID) (*Metadata, 
 		buffer = tmp
 	}
 
-	metadata, err := NewMetadataFromBytes(buffer)
+	metadata, err := metadata.NewMetadataFromBytes(buffer)
 	if err != nil {
 		return nil, false, err
 	}
@@ -150,7 +201,7 @@ func GetMetadata(repository *storage.Repository, indexID uuid.UUID) (*Metadata, 
 	return metadata, false, nil
 }
 
-func GetIndex(repository *storage.Repository, indexID uuid.UUID) (*Index, []byte, error) {
+func GetIndex(repository *storage.Repository, indexID uuid.UUID) (*index.Index, []byte, error) {
 	t0 := time.Now()
 	defer func() {
 		profiler.RecordEvent("snapshot.GetIndex", time.Since(t0))
@@ -202,7 +253,7 @@ func GetIndex(repository *storage.Repository, indexID uuid.UUID) (*Index, []byte
 		}
 		buffer = tmp
 	}
-	index, err := NewIndexFromBytes(buffer)
+	index, err := index.NewIndexFromBytes(buffer)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -212,7 +263,7 @@ func GetIndex(repository *storage.Repository, indexID uuid.UUID) (*Index, []byte
 	return index, checksum[:], nil
 }
 
-func GetFilesystem(repository *storage.Repository, indexID uuid.UUID) (*Filesystem, []byte, error) {
+func GetFilesystem(repository *storage.Repository, indexID uuid.UUID) (*filesystem.Filesystem, []byte, error) {
 	t0 := time.Now()
 	defer func() {
 		profiler.RecordEvent("snapshot.GetFilesystem", time.Since(t0))
@@ -264,7 +315,7 @@ func GetFilesystem(repository *storage.Repository, indexID uuid.UUID) (*Filesyst
 		}
 		buffer = tmp
 	}
-	filesystem, err := NewFilesystemFromBytes(buffer)
+	filesystem, err := filesystem.NewFilesystemFromBytes(buffer)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -310,7 +361,7 @@ func (snapshot *Snapshot) PutChunk(checksum [32]byte, data []byte) (int, error) 
 	return len(buffer), nil
 }
 
-func (snapshot *Snapshot) PutObject(object *Object) (int, error) {
+func (snapshot *Snapshot) PutObject(object *objects.Object) (int, error) {
 	t0 := time.Now()
 	defer func() {
 		profiler.RecordEvent("snapshot.PutObject", time.Since(t0))
@@ -492,7 +543,7 @@ func (snapshot *Snapshot) CheckChunk(checksum [32]byte) (bool, error) {
 	return exists, nil
 }
 
-func (snapshot *Snapshot) GetObject(checksum [32]byte) (*Object, error) {
+func (snapshot *Snapshot) GetObject(checksum [32]byte) (*objects.Object, error) {
 	t0 := time.Now()
 	defer func() {
 		profiler.RecordEvent("snapshot.GetObject", time.Since(t0))
@@ -520,7 +571,7 @@ func (snapshot *Snapshot) GetObject(checksum [32]byte) (*Object, error) {
 		buffer = tmp
 	}
 
-	object := &Object{}
+	object := &objects.Object{}
 	err = msgpack.Unmarshal(buffer, &object)
 	return object, err
 }

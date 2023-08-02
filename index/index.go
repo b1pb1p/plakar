@@ -1,8 +1,10 @@
-package snapshot
+package index
 
 import (
 	"path/filepath"
 	"sync"
+
+	"github.com/poolpOrg/plakar/objects"
 
 	"github.com/poolpOrg/plakar/logger"
 	"github.com/vmihailenco/msgpack/v5"
@@ -115,7 +117,7 @@ func (index *Index) addChecksum(checksum [32]byte) {
 	}
 }
 
-func (index *Index) GetChecksumID(checksum [32]byte) (uint64, bool) {
+func (index *Index) ChecksumToId(checksum [32]byte) (uint64, bool) {
 	index.muChecksums.Lock()
 	defer index.muChecksums.Unlock()
 
@@ -123,7 +125,7 @@ func (index *Index) GetChecksumID(checksum [32]byte) (uint64, bool) {
 	return checksumID, exists
 }
 
-func (index *Index) GetChecksum(checksumID uint64) ([32]byte, bool) {
+func (index *Index) IdToChecksum(checksumID uint64) ([32]byte, bool) {
 	index.muChecksums.Lock()
 	defer index.muChecksums.Unlock()
 
@@ -214,7 +216,7 @@ func (index *Index) ListObjects() [][32]byte {
 
 	ret := make([][32]byte, 0)
 	for checksumID := range index.Objects {
-		checksum, exists := index.GetChecksum(checksumID)
+		checksum, exists := index.IdToChecksum(checksumID)
 		if !exists {
 			panic("ListObjects: corrupted index")
 		}
@@ -229,7 +231,7 @@ func (index *Index) ListChunks() [][32]byte {
 
 	ret := make([][32]byte, 0)
 	for checksumID := range index.Chunks {
-		checksum, exists := index.GetChecksum(checksumID)
+		checksum, exists := index.IdToChecksum(checksumID)
 		if !exists {
 			panic("ListChunks: corrupted index")
 		}
@@ -261,14 +263,14 @@ func (index *Index) ListContentTypes() []string {
 }
 
 // Public
-func (index *Index) AddChunk(chunk *Chunk) {
+func (index *Index) AddChunk(chunk *objects.Chunk) {
 	index.muChunks.Lock()
 	defer index.muChunks.Unlock()
 	logger.Trace("index", "AddChunk(%064x)", chunk.Checksum)
 
 	index.addChecksum(chunk.Checksum)
 
-	checksumID, exists := index.GetChecksumID(chunk.Checksum)
+	checksumID, exists := index.ChecksumToId(chunk.Checksum)
 	if !exists {
 		panic("AddChunk: corrupted index")
 	}
@@ -279,7 +281,7 @@ func (index *Index) AddChunk(chunk *Chunk) {
 	}
 }
 
-func (index *Index) AddObject(object *Object) {
+func (index *Index) AddObject(object *objects.Object) {
 	index.muObjects.Lock()
 	defer index.muObjects.Unlock()
 	logger.Trace("index", "AddObject(%064x)", object.Checksum)
@@ -287,7 +289,7 @@ func (index *Index) AddObject(object *Object) {
 	index.addChecksum(object.Checksum)
 	index.addContentType(object.ContentType)
 
-	objectChecksumID, exists := index.GetChecksumID(object.Checksum)
+	objectChecksumID, exists := index.ChecksumToId(object.Checksum)
 	if !exists {
 		panic("AddObject: corrupted index: could not find object checksum")
 	}
@@ -301,7 +303,7 @@ func (index *Index) AddObject(object *Object) {
 
 	chunks := make([]uint64, 0)
 	for _, checksum := range object.Chunks {
-		chunkChecksumID, exists := index.GetChecksumID(checksum)
+		chunkChecksumID, exists := index.ChecksumToId(checksum)
 		if !exists {
 			panic("AddObject: corrupted index: could not find chunk checksum")
 		}
@@ -316,7 +318,7 @@ func (index *Index) AddObject(object *Object) {
 	}
 }
 
-func (index *Index) LinkPathnameToObject(pathname string, object *Object) {
+func (index *Index) LinkPathnameToObject(pathname string, object *objects.Object) {
 	index.muPathnameToObject.Lock()
 	defer index.muPathnameToObject.Unlock()
 
@@ -328,7 +330,7 @@ func (index *Index) LinkPathnameToObject(pathname string, object *Object) {
 		panic("LinkPathnameToObject: corrupted index: could not find pathname")
 	}
 
-	checksumID, exists := index.GetChecksumID(object.Checksum)
+	checksumID, exists := index.ChecksumToId(object.Checksum)
 	if !exists {
 		panic("LinkPathnameToObject: corrupted index: could not find object checksum")
 	}
@@ -340,11 +342,11 @@ func (index *Index) LinkPathnameToObject(pathname string, object *Object) {
 	index.ObjectToPathnames[checksumID] = append(index.ObjectToPathnames[checksumID], pathnameID)
 }
 
-func (index *Index) LookupChunk(checksum [32]byte) *Chunk {
+func (index *Index) LookupChunk(checksum [32]byte) *objects.Chunk {
 	index.muChunks.Lock()
 	defer index.muChunks.Unlock()
 
-	checksumID, exists := index.GetChecksumID(checksum)
+	checksumID, exists := index.ChecksumToId(checksum)
 	if !exists {
 		return nil
 	}
@@ -352,7 +354,7 @@ func (index *Index) LookupChunk(checksum [32]byte) *Chunk {
 	if chunk, ok := index.Chunks[checksumID]; !ok {
 		return nil
 	} else {
-		return &Chunk{
+		return &objects.Chunk{
 			Checksum: checksum,
 			Start:    chunk.Start,
 			Length:   chunk.Length,
@@ -360,11 +362,11 @@ func (index *Index) LookupChunk(checksum [32]byte) *Chunk {
 	}
 }
 
-func (index *Index) LookupObject(checksum [32]byte) *Object {
+func (index *Index) LookupObject(checksum [32]byte) *objects.Object {
 	index.muObjects.Lock()
 	defer index.muObjects.Unlock()
 
-	checksumID, exists := index.GetChecksumID(checksum)
+	checksumID, exists := index.ChecksumToId(checksum)
 	if !exists {
 		return nil
 	}
@@ -376,7 +378,7 @@ func (index *Index) LookupObject(checksum [32]byte) *Object {
 
 	chunks := make([][32]byte, 0)
 	for _, checksumID := range object.Chunks {
-		checksum, exists := index.GetChecksum(checksumID)
+		checksum, exists := index.IdToChecksum(checksumID)
 		if !exists {
 			panic("LookupObject: corrupted index: could not find chunk checksum")
 		}
@@ -388,14 +390,14 @@ func (index *Index) LookupObject(checksum [32]byte) *Object {
 		panic("LookupObject: corrupted index: could not find content type")
 	}
 
-	return &Object{
+	return &objects.Object{
 		Checksum:    checksum,
 		Chunks:      chunks,
 		ContentType: contentTypeID,
 	}
 }
 
-func (index *Index) LookupObjectForPathname(pathname string) *Object {
+func (index *Index) LookupObjectForPathname(pathname string) *objects.Object {
 	index.muPathnameToObject.Lock()
 	defer index.muPathnameToObject.Unlock()
 
@@ -410,7 +412,7 @@ func (index *Index) LookupObjectForPathname(pathname string) *Object {
 		return nil
 	}
 
-	checksum, exists := index.GetChecksum(checksumID)
+	checksum, exists := index.IdToChecksum(checksumID)
 	if !exists {
 		panic("LookupObjectForPathname: corrupted index: could not find object checksum")
 	}
@@ -432,7 +434,7 @@ func (index *Index) LookupObjectsForContentType(contentType string) [][32]byte {
 	} else {
 		ret := make([][32]byte, 0)
 		for _, symbolKey := range objectsChecksums {
-			checksum, exists := index.GetChecksum(symbolKey)
+			checksum, exists := index.IdToChecksum(symbolKey)
 			if !exists {
 				panic("LookupObjectsForContentType: corrupted index: could not find chunk")
 			}
