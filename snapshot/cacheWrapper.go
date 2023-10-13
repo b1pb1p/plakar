@@ -1,16 +1,15 @@
 package snapshot
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"time"
 
-	"github.com/poolpOrg/plakar/compression"
-	"github.com/poolpOrg/plakar/encryption"
-	"github.com/poolpOrg/plakar/filesystem"
-	"github.com/poolpOrg/plakar/logger"
-	"github.com/poolpOrg/plakar/objects"
-	"github.com/poolpOrg/plakar/profiler"
+	"github.com/PlakarLabs/plakar/compression"
+	"github.com/PlakarLabs/plakar/encryption"
+	"github.com/PlakarLabs/plakar/logger"
+	"github.com/PlakarLabs/plakar/objects"
+	"github.com/PlakarLabs/plakar/profiler"
+	"github.com/PlakarLabs/plakar/vfs"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
@@ -19,7 +18,7 @@ type CachedObject struct {
 	Checksum    [32]byte
 	Chunks      []*objects.Chunk
 	ContentType string
-	Info        filesystem.Fileinfo
+	Info        vfs.FileInfo
 }
 
 func (snapshot *Snapshot) GetCachedObject(pathname string) (*CachedObject, error) {
@@ -30,9 +29,9 @@ func (snapshot *Snapshot) GetCachedObject(pathname string) (*CachedObject, error
 	secret := snapshot.repository.GetSecret()
 	cache := snapshot.repository.GetCache()
 
-	pathHash := sha256.New()
-	pathHash.Write([]byte(pathname))
-	hashedPath := fmt.Sprintf("%032x", pathHash.Sum(nil))
+	pathHasher := encryption.GetHasher(snapshot.repository.Configuration().Hashing)
+	pathHasher.Write([]byte(pathname))
+	hashedPath := fmt.Sprintf("%032x", pathHasher.Sum(nil))
 
 	data, err := cache.GetPath(snapshot.repository.Configuration().RepositoryID.String(), hashedPath)
 	if err != nil {
@@ -49,7 +48,7 @@ func (snapshot *Snapshot) GetCachedObject(pathname string) (*CachedObject, error
 		data = tmp
 	}
 
-	data, err = compression.Inflate(data)
+	data, err = compression.Inflate(snapshot.repository.Configuration().Compression, data)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +62,7 @@ func (snapshot *Snapshot) GetCachedObject(pathname string) (*CachedObject, error
 	return &cacheObject, nil
 }
 
-func (snapshot *Snapshot) PutCachedObject(pathname string, object objects.Object, fi filesystem.Fileinfo) error {
+func (snapshot *Snapshot) PutCachedObject(pathname string, object objects.Object, fi vfs.FileInfo) error {
 	t0 := time.Now()
 	defer func() {
 		profiler.RecordEvent("snapshot.PutCachedObject", time.Since(t0))
@@ -71,9 +70,9 @@ func (snapshot *Snapshot) PutCachedObject(pathname string, object objects.Object
 	secret := snapshot.repository.GetSecret()
 	cache := snapshot.repository.GetCache()
 
-	pathHash := sha256.New()
-	pathHash.Write([]byte(pathname))
-	hashedPath := fmt.Sprintf("%032x", pathHash.Sum(nil))
+	pathHasher := encryption.GetHasher(snapshot.repository.Configuration().Hashing)
+	pathHasher.Write([]byte(pathname))
+	hashedPath := fmt.Sprintf("%032x", pathHasher.Sum(nil))
 
 	cacheObject := CachedObject{}
 	cacheObject.Checksum = object.Checksum
@@ -92,7 +91,11 @@ func (snapshot *Snapshot) PutCachedObject(pathname string, object objects.Object
 		return err
 	}
 
-	jobject = compression.Deflate(jobject)
+	jobject, err = compression.Deflate(snapshot.repository.Configuration().Compression, jobject)
+	if err != nil {
+		return err
+	}
+
 	if snapshot.repository.Configuration().Encryption != "" {
 		tmp, err := encryption.Encrypt(secret, jobject)
 		if err != nil {

@@ -4,9 +4,14 @@ import (
 	"encoding/base64"
 	"time"
 
+<<<<<<< HEAD
 	"github.com/ebfe/signify"
+=======
+	"github.com/PlakarLabs/plakar/logger"
+	"github.com/PlakarLabs/plakar/profiler"
+	"github.com/PlakarLabs/plakar/storage"
+>>>>>>> main
 	"github.com/google/uuid"
-	"github.com/poolpOrg/plakar/storage"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
@@ -87,6 +92,12 @@ func NewMetadata(indexID uuid.UUID, publicKey *signify.PublicKey) *Metadata {
 }
 
 func NewMetadataFromBytes(serialized []byte) (*Metadata, error) {
+	t0 := time.Now()
+	defer func() {
+		profiler.RecordEvent("metadata.NewIndexFromBytes", time.Since(t0))
+		logger.Trace("metadata", "NewMetadataFromBytes(...): %s", time.Since(t0))
+	}()
+
 	var metadata Metadata
 	if err := msgpack.Unmarshal(serialized, &metadata); err != nil {
 		return nil, err
@@ -96,6 +107,12 @@ func NewMetadataFromBytes(serialized []byte) (*Metadata, error) {
 }
 
 func (metadata *Metadata) Serialize() ([]byte, error) {
+	t0 := time.Now()
+	defer func() {
+		profiler.RecordEvent("metadata.Serialize", time.Since(t0))
+		logger.Trace("metadata", "Serialize(): %s", time.Since(t0))
+	}()
+
 	serialized, err := msgpack.Marshal(metadata)
 	if err != nil {
 		return nil, err

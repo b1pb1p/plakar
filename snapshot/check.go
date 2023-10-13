@@ -2,11 +2,11 @@ package snapshot
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"hash"
 
-	"github.com/poolpOrg/plakar/logger"
-	"github.com/poolpOrg/plakar/progress"
+	"github.com/PlakarLabs/plakar/encryption"
+	"github.com/PlakarLabs/plakar/logger"
+	"github.com/PlakarLabs/plakar/progress"
 )
 
 func snapshotCheckChunk(snapshot *Snapshot, chunkChecksum [32]byte, hasher hash.Hash, fast bool) (bool, error) {
@@ -52,9 +52,10 @@ func snapshotCheckObject(snapshot *Snapshot, checksum [32]byte, fast bool) (bool
 	}
 
 	ret := true
-	objectHash := sha256.New()
+
+	objectHasher := encryption.GetHasher(snapshot.repository.Configuration().Hashing)
 	for _, chunkChecksum := range object.Chunks {
-		_, err := snapshotCheckChunk(snapshot, chunkChecksum, objectHash, fast)
+		_, err := snapshotCheckChunk(snapshot, chunkChecksum, objectHasher, fast)
 		if err != nil {
 			logger.Warn("%s: chunk %064x: %s", snapshot.Metadata.GetIndexShortID(), chunkChecksum, err)
 			continue
@@ -62,7 +63,7 @@ func snapshotCheckObject(snapshot *Snapshot, checksum [32]byte, fast bool) (bool
 	}
 
 	if !fast {
-		if !bytes.Equal(objectHash.Sum(nil), checksum[:]) {
+		if !bytes.Equal(objectHasher.Sum(nil), checksum[:]) {
 			logger.Warn("%s: corrupted object %064x", snapshot.Metadata.GetIndexShortID(), checksum)
 			ret = false
 		}
@@ -71,7 +72,8 @@ func snapshotCheckObject(snapshot *Snapshot, checksum [32]byte, fast bool) (bool
 }
 
 func snapshotCheckResource(snapshot *Snapshot, resource string, fast bool, showProgress bool) (bool, error) {
-	object := snapshot.Index.LookupObjectForPathname(resource)
+	pathnameID := snapshot.Filesystem.GetPathnameID(resource)
+	object := snapshot.Index.LookupObjectForPathname(pathnameID)
 	if object == nil {
 		logger.Warn("%s: no such file %s", snapshot.Metadata.GetIndexShortID(), resource)
 		return false, nil
@@ -117,9 +119,9 @@ func snapshotCheckFull(snapshot *Snapshot, fast bool, showProgress bool) (bool, 
 				continue
 			}
 
-			chunkHash := sha256.New()
-			chunkHash.Write(data)
-			if !bytes.Equal(chunkHash.Sum(nil), checksum[:]) {
+			chunkHasher := encryption.GetHasher(snapshot.repository.Configuration().Hashing)
+			chunkHasher.Write(data)
+			if !bytes.Equal(chunkHasher.Sum(nil), checksum[:]) {
 				logger.Warn("%s: corrupted chunk %064x", snapshot.Metadata.GetIndexShortID(), checksum)
 				ret = false
 				continue
@@ -159,7 +161,7 @@ func snapshotCheckFull(snapshot *Snapshot, fast bool, showProgress bool) (bool, 
 				continue
 			}
 
-			objectHash := sha256.New()
+			objectHasher := encryption.GetHasher(snapshot.repository.Configuration().Hashing)
 			for _, chunkChecksum := range object.Chunks {
 				indexChunk := snapshot.Index.LookupChunk(chunkChecksum)
 				if indexChunk == nil {
@@ -174,9 +176,9 @@ func snapshotCheckFull(snapshot *Snapshot, fast bool, showProgress bool) (bool, 
 					ret = false
 					continue
 				}
-				objectHash.Write(data)
+				objectHasher.Write(data)
 			}
-			if !bytes.Equal(objectHash.Sum(nil), checksum[:]) {
+			if !bytes.Equal(objectHasher.Sum(nil), checksum[:]) {
 				logger.Warn("%s: corrupted object %064x", snapshot.Metadata.GetIndexShortID(), checksum)
 				ret = false
 				continue
@@ -196,7 +198,8 @@ func snapshotCheckFull(snapshot *Snapshot, fast bool, showProgress bool) (bool, 
 		}()
 	}
 	for _, file := range snapshot.Filesystem.ListFiles() {
-		object := snapshot.Index.LookupObjectForPathname(file)
+		pathnameID := snapshot.Filesystem.GetPathnameID(file)
+		object := snapshot.Index.LookupObjectForPathname(pathnameID)
 		if object == nil {
 			logger.Warn("%s: unlisted object for file %s", snapshot.Metadata.GetIndexShortID(), file)
 			ret = false
@@ -210,7 +213,7 @@ func snapshotCheckFull(snapshot *Snapshot, fast bool, showProgress bool) (bool, 
 }
 
 func (snapshot *Snapshot) Check(resource string, fast bool, showProgress bool) (bool, error) {
-	if resource != "" {
+	if resource != "" && resource != "/" {
 		return snapshotCheckResource(snapshot, resource, fast, showProgress)
 	} else {
 		return snapshotCheckFull(snapshot, fast, showProgress)

@@ -21,14 +21,15 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
-	"github.com/poolpOrg/plakar/cache"
-	"github.com/poolpOrg/plakar/compression"
-	"github.com/poolpOrg/plakar/logger"
-	"github.com/poolpOrg/plakar/storage"
+	"github.com/PlakarLabs/plakar/cache"
+	"github.com/PlakarLabs/plakar/compression"
+	"github.com/PlakarLabs/plakar/logger"
+	"github.com/PlakarLabs/plakar/storage"
 	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/google/uuid"
@@ -51,8 +52,6 @@ type FSTransaction struct {
 	repository FSRepository
 	prepared   bool
 
-	//SkipDirs []string
-
 	chunksMutex  sync.Mutex
 	objectsMutex sync.Mutex
 
@@ -69,19 +68,11 @@ type FSTransaction struct {
 }
 
 func init() {
-	storage.Register("filesystem", NewFSRepository)
+	storage.Register("fs", NewFSRepository)
 }
 
 func NewFSRepository() storage.RepositoryBackend {
 	return &FSRepository{}
-}
-
-func (repository *FSRepository) objectExists(checksum [32]byte) bool {
-	return pathnameExists(repository.PathObject(checksum))
-}
-
-func (repository *FSRepository) chunkExists(checksum [32]byte) bool {
-	return pathnameExists(repository.PathChunk(checksum))
 }
 
 func (repository *FSRepository) Create(location string, config storage.RepositoryConfig) error {
@@ -89,6 +80,10 @@ func (repository *FSRepository) Create(location string, config storage.Repositor
 	defer func() {
 		logger.Profile("Create(%s): %s", location, time.Since(t0))
 	}()
+
+	if strings.HasPrefix(location, "fs://") {
+		location = location[4:]
+	}
 
 	repository.root = location
 
@@ -120,7 +115,12 @@ func (repository *FSRepository) Create(location string, config storage.Repositor
 		return err
 	}
 
-	_, err = f.Write(compression.Deflate(jconfig))
+	compressedConfig, err := compression.Deflate("gzip", jconfig)
+	if err != nil {
+		return err
+	}
+
+	_, err = f.Write(compressedConfig)
 	if err != nil {
 		return err
 	}
@@ -131,6 +131,10 @@ func (repository *FSRepository) Create(location string, config storage.Repositor
 }
 
 func (repository *FSRepository) Open(location string) error {
+	if strings.HasPrefix(location, "fs://") {
+		location = location[4:]
+	}
+
 	repository.root = location
 
 	compressed, err := ioutil.ReadFile(fmt.Sprintf("%s/CONFIG", repository.root))
@@ -138,7 +142,7 @@ func (repository *FSRepository) Open(location string) error {
 		return err
 	}
 
-	jconfig, err := compression.Inflate(compressed)
+	jconfig, err := compression.Inflate("gzip", compressed)
 	if err != nil {
 		return err
 	}
@@ -319,10 +323,6 @@ func (repository *FSRepository) GetObjects() ([][32]byte, error) {
 		}
 
 		for _, object := range objects {
-			//_, err = uuid.Parse(object.Name())
-			//if err != nil {
-			//		return ret, nil
-			//	}
 			t, err := hex.DecodeString(object.Name())
 			if err != nil {
 				return nil, err

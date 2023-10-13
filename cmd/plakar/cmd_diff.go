@@ -20,17 +20,17 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"os/user"
 	"strings"
 
+	"github.com/PlakarLabs/plakar/snapshot"
+	"github.com/PlakarLabs/plakar/storage"
+	"github.com/PlakarLabs/plakar/vfs"
 	"github.com/dustin/go-humanize"
 	"github.com/pmezard/go-difflib/difflib"
-	"github.com/poolpOrg/plakar/filesystem"
-	"github.com/poolpOrg/plakar/snapshot"
-	"github.com/poolpOrg/plakar/storage"
 )
 
 func init() {
@@ -150,8 +150,10 @@ func cmd_diff(ctx Plakar, repository *storage.Repository, args []string) int {
 			log.Fatalf("%s: could not open snapshot %s", flag.CommandLine.Name(), res2[0])
 		}
 		for i := 2; i < len(args); i++ {
-			object1 := snapshot1.Index.LookupObjectForPathname(args[i])
-			object2 := snapshot2.Index.LookupObjectForPathname(args[i])
+			pathnameID1 := snapshot1.Filesystem.GetPathnameID(args[i])
+			pathnameID2 := snapshot2.Filesystem.GetPathnameID(args[i])
+			object1 := snapshot1.Index.LookupObjectForPathname(pathnameID1)
+			object2 := snapshot2.Index.LookupObjectForPathname(pathnameID2)
 			if object1 == nil && object2 == nil {
 				fmt.Fprintf(os.Stderr, "%s: %s: file not found in snapshots\n", flag.CommandLine.Name(), args[i])
 			}
@@ -162,30 +164,32 @@ func cmd_diff(ctx Plakar, repository *storage.Repository, args []string) int {
 	return 0
 }
 
-func fiToDiff(fi filesystem.Fileinfo) string {
-	pwUserLookup, err := user.LookupId(fmt.Sprintf("%d", fi.Uid))
-	username := fmt.Sprintf("%d", fi.Uid)
+func fiToDiff(fi vfs.FileInfo) string {
+	pwUserLookup, err := user.LookupId(fmt.Sprintf("%d", fi.Uid()))
+	username := fmt.Sprintf("%d", fi.Uid())
 	if err == nil {
 		username = pwUserLookup.Username
 	}
 
-	grGroupLookup, err := user.LookupGroupId(fmt.Sprintf("%d", fi.Gid))
-	groupname := fmt.Sprintf("%d", fi.Gid)
+	grGroupLookup, err := user.LookupGroupId(fmt.Sprintf("%d", fi.Gid()))
+	groupname := fmt.Sprintf("%d", fi.Gid())
 	if err == nil {
 		groupname = grGroupLookup.Name
 	}
 
 	return fmt.Sprintf("%s % 8s % 8s % 8s %s",
-		fi.Mode,
+		fi.Mode(),
 		username,
 		groupname,
-		humanize.Bytes(uint64(fi.Size)),
-		fi.ModTime.UTC())
+		humanize.Bytes(uint64(fi.Size())),
+		fi.ModTime().UTC())
 }
 
 func diff_files(snapshot1 *snapshot.Snapshot, snapshot2 *snapshot.Snapshot, filename1 string, filename2 string) {
-	object1 := snapshot1.Index.LookupObjectForPathname(filename1)
-	object2 := snapshot1.Index.LookupObjectForPathname(filename2)
+	pathnameID1 := snapshot1.Filesystem.GetPathnameID(filename1)
+	pathnameID2 := snapshot1.Filesystem.GetPathnameID(filename2)
+	object1 := snapshot1.Index.LookupObjectForPathname(pathnameID1)
+	object2 := snapshot1.Index.LookupObjectForPathname(pathnameID2)
 
 	// file does not exist in either snapshot
 	if object1 == nil && object2 == nil {
@@ -199,18 +203,18 @@ func diff_files(snapshot1 *snapshot.Snapshot, snapshot2 *snapshot.Snapshot, file
 	}
 
 	buf1 := make([]byte, 0)
-	rd1, err := snapshot1.NewReader(filename1)
+	rd1, err := snapshot1.Repository().NewReader(snapshot1.Index, filename1)
 	if err == nil {
-		buf1, err = ioutil.ReadAll(rd1)
+		buf1, err = io.ReadAll(rd1)
 		if err != nil {
 			return
 		}
 	}
 
 	buf2 := make([]byte, 0)
-	rd2, err := snapshot2.NewReader(filename2)
+	rd2, err := snapshot2.Repository().NewReader(snapshot2.Index, filename2)
 	if err == nil {
-		buf2, err = ioutil.ReadAll(rd2)
+		buf2, err = io.ReadAll(rd2)
 		if err != nil {
 			return
 		}

@@ -31,14 +31,14 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/PlakarLabs/plakar/metadata"
+	"github.com/PlakarLabs/plakar/objects"
+	"github.com/PlakarLabs/plakar/snapshot"
+	"github.com/PlakarLabs/plakar/storage"
+	"github.com/PlakarLabs/plakar/vfs"
 	"github.com/dustin/go-humanize"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
-	"github.com/poolpOrg/plakar/filesystem"
-	"github.com/poolpOrg/plakar/metadata"
-	"github.com/poolpOrg/plakar/objects"
-	"github.com/poolpOrg/plakar/snapshot"
-	"github.com/poolpOrg/plakar/storage"
 
 	"github.com/alecthomas/chroma/formatters"
 	"github.com/alecthomas/chroma/lexers"
@@ -165,7 +165,7 @@ func SnapshotToSummary(snapshot *snapshot.Snapshot) *SnapshotSummary {
 	ss.Directories = uint64(len(snapshot.Filesystem.ListDirectories()))
 	ss.Files = uint64(len(snapshot.Filesystem.ListFiles()))
 	ss.NonRegular = uint64(len(snapshot.Filesystem.ListNonRegular()))
-	ss.Pathnames = uint64(len(snapshot.Index.ListPathnames()))
+	ss.Pathnames = uint64(len(snapshot.Filesystem.ListStat()))
 	ss.Objects = uint64(len(snapshot.Index.ListObjects()))
 	ss.Chunks = uint64(len(snapshot.Index.ListChunks()))
 	return ss
@@ -275,24 +275,24 @@ func browse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	directories := make([]*filesystem.Fileinfo, 0)
-	files := make([]*filesystem.Fileinfo, 0)
-	symlinks := make([]*filesystem.Fileinfo, 0)
+	directories := make([]*vfs.FileInfo, 0)
+	files := make([]*vfs.FileInfo, 0)
+	symlinks := make([]*vfs.FileInfo, 0)
 	symlinksResolve := make(map[string]string)
-	others := make([]*filesystem.Fileinfo, 0)
+	others := make([]*vfs.FileInfo, 0)
 
 	children, _ := snap.Filesystem.LookupChildren(path)
 	for _, childname := range children {
 		fileinfo, _ := snap.Filesystem.LookupInode(fmt.Sprintf("%s/%s", path, childname))
-		if fileinfo.Mode.IsDir() {
+		if fileinfo.Mode().IsDir() {
 			directories = append(directories, fileinfo)
-		} else if fileinfo.Mode.IsRegular() {
+		} else if fileinfo.Mode().IsRegular() {
 			files = append(files, fileinfo)
 		} else {
-			pathname := fmt.Sprintf("%s/%s", path, fileinfo.Name)
+			pathname := fmt.Sprintf("%s/%s", path, fileinfo.Name())
 			if _, exists := snap.Filesystem.Symlinks[pathname]; exists {
 				symlinks = append(symlinks, fileinfo)
-				symlinksResolve[fileinfo.Name] = snap.Filesystem.Symlinks[pathname]
+				symlinksResolve[fileinfo.Name()] = snap.Filesystem.Symlinks[pathname]
 			} else {
 				others = append(others, fileinfo)
 			}
@@ -300,16 +300,16 @@ func browse(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sort.Slice(directories, func(i, j int) bool {
-		return strings.Compare(directories[i].Name, directories[j].Name) < 0
+		return strings.Compare(directories[i].Name(), directories[j].Name()) < 0
 	})
 	sort.Slice(files, func(i, j int) bool {
-		return strings.Compare(files[i].Name, files[j].Name) < 0
+		return strings.Compare(files[i].Name(), files[j].Name()) < 0
 	})
 	sort.Slice(symlinks, func(i, j int) bool {
-		return strings.Compare(symlinks[i].Name, symlinks[j].Name) < 0
+		return strings.Compare(symlinks[i].Name(), symlinks[j].Name()) < 0
 	})
 	sort.Slice(others, func(i, j int) bool {
-		return strings.Compare(others[i].Name, others[j].Name) < 0
+		return strings.Compare(others[i].Name(), others[j].Name()) < 0
 	})
 
 	nav := make([]string, 0)
@@ -322,11 +322,11 @@ func browse(w http.ResponseWriter, r *http.Request) {
 
 	ctx := &struct {
 		Snapshot        *snapshot.Snapshot
-		Directories     []*filesystem.Fileinfo
-		Files           []*filesystem.Fileinfo
-		Symlinks        []*filesystem.Fileinfo
+		Directories     []*vfs.FileInfo
+		Files           []*vfs.FileInfo
+		Symlinks        []*vfs.FileInfo
 		SymlinksResolve map[string]string
-		Others          []*filesystem.Fileinfo
+		Others          []*vfs.FileInfo
 		Path            string
 		Scanned         []string
 		Navigation      []string
@@ -354,7 +354,8 @@ func object(w http.ResponseWriter, r *http.Request) {
 		snap = lcache
 	}
 
-	object := snap.Index.LookupObjectForPathname(path)
+	pathnameID := snap.Filesystem.GetPathnameID(path)
+	object := snap.Index.LookupObjectForPathname(pathnameID)
 	if object == nil {
 		http.Error(w, "", http.StatusNotFound)
 		return
@@ -397,7 +398,7 @@ func object(w http.ResponseWriter, r *http.Request) {
 		Snapshot        *snapshot.Snapshot
 		Object          *objects.Object
 		Chunks          []*objects.Chunk
-		Info            *filesystem.Fileinfo
+		Info            *vfs.FileInfo
 		Root            string
 		Path            string
 		Navigation      []string
@@ -427,7 +428,8 @@ func raw(w http.ResponseWriter, r *http.Request) {
 		snap = lcache
 	}
 
-	object := snap.Index.LookupObjectForPathname(path)
+	pathnameID := snap.Filesystem.GetPathnameID(path)
+	object := snap.Index.LookupObjectForPathname(pathnameID)
 	if object == nil {
 		http.Error(w, "", http.StatusNotFound)
 		return
@@ -557,9 +559,10 @@ func search_snapshots(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		for _, file := range snap.Index.ListPathnames() {
+		for _, file := range snap.Filesystem.ListStat() {
 			if strings.Contains(file, q) {
-				object := snap.Index.LookupObjectForPathname(file)
+				pathnameID := snap.Filesystem.GetPathnameID(file)
+				object := snap.Index.LookupObjectForPathname(pathnameID)
 				if kind != "" && !strings.HasPrefix(object.ContentType, kind+"/") {
 					continue
 				}
@@ -633,10 +636,17 @@ func Ui(repository *storage.Repository, spawn bool) error {
 	}
 	templates[t.Name()] = t
 
-	port := rand.Uint32() % 0xffff
+	var port uint16
+	for {
+		port = uint16(rand.Uint32() % 0xffff)
+		if port >= 1024 {
+			break
+		}
+	}
+
 	url := fmt.Sprintf("http://localhost:%d", port)
 
-	fmt.Println("lauching browser API at", url)
+	fmt.Println("lauching browser UI pointing at", url)
 	if spawn {
 		switch runtime.GOOS {
 		case "linux":

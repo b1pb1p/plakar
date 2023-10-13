@@ -25,14 +25,14 @@ HERE IS A FLOW CHART TO BETTER EXPLAIN VALID CURRENT USE-CASES:
 
 ### Requirement
 
-`plakar` requires Go 1.16 or higher,
+`plakar` requires Go 1.18 or higher,
 it may work on older versions but hasn't been tested.
 
 
 ### Installing the CLI
 
 ```
-$ go get github.com/poolpOrg/plakar/cmd/plakar
+go install github.com/poolpOrg/plakar/cmd/plakar@latest
 ```
 
 ### Creating a plakar repository

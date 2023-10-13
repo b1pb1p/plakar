@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/PlakarLabs/plakar/logger"
+	"github.com/PlakarLabs/plakar/storage"
 	"github.com/google/uuid"
-	"github.com/poolpOrg/plakar/logger"
-	"github.com/poolpOrg/plakar/storage"
 )
 
 func Server(repository *storage.Repository, addr string) {
@@ -277,12 +277,13 @@ func handleConnection(rd io.Reader, wr io.Writer) {
 			go func() {
 				defer wg.Done()
 				logger.Trace("%s: PutMetadata()", clientUuid)
-				err := repository.PutMetadata(request.Payload.(ReqStorePutMetadata).IndexID, request.Payload.(ReqStorePutMetadata).Data)
+				nbytes, err := repository.PutMetadata(request.Payload.(ReqStorePutMetadata).IndexID, request.Payload.(ReqStorePutMetadata).Data)
 				result := Request{
 					Uuid: request.Uuid,
 					Type: "ResStorePutMetadata",
 					Payload: ResStorePutMetadata{
-						Err: err,
+						NBytes: nbytes,
+						Err:    err,
 					},
 				}
 				err = encoder.Encode(&result)
@@ -296,12 +297,13 @@ func handleConnection(rd io.Reader, wr io.Writer) {
 			go func() {
 				defer wg.Done()
 				logger.Trace("%s: PutIndex()", clientUuid)
-				err := repository.PutIndex(request.Payload.(ReqStorePutIndex).IndexID, request.Payload.(ReqStorePutIndex).Data)
+				nbytes, err := repository.PutIndex(request.Payload.(ReqStorePutIndex).IndexID, request.Payload.(ReqStorePutIndex).Data)
 				result := Request{
 					Uuid: request.Uuid,
 					Type: "ResStorePutIndex",
 					Payload: ResStorePutIndex{
-						Err: err,
+						NBytes: nbytes,
+						Err:    err,
 					},
 				}
 				err = encoder.Encode(&result)
@@ -315,12 +317,13 @@ func handleConnection(rd io.Reader, wr io.Writer) {
 			go func() {
 				defer wg.Done()
 				logger.Trace("%s: PutFilesystem()", clientUuid)
-				err := repository.PutFilesystem(request.Payload.(ReqStorePutFilesystem).IndexID, request.Payload.(ReqStorePutFilesystem).Data)
+				nbytes, err := repository.PutFilesystem(request.Payload.(ReqStorePutFilesystem).IndexID, request.Payload.(ReqStorePutFilesystem).Data)
 				result := Request{
 					Uuid: request.Uuid,
 					Type: "ResStorePutFilesystem",
 					Payload: ResStorePutFilesystem{
-						Err: err,
+						NBytes: nbytes,
+						Err:    err,
 					},
 				}
 				err = encoder.Encode(&result)
@@ -462,12 +465,13 @@ func handleConnection(rd io.Reader, wr io.Writer) {
 				logger.Trace("%s: PutChunk(%s)", clientUuid, request.Payload.(ReqPutChunk).Checksum)
 				txUuid := request.Payload.(ReqPutChunk).Transaction
 				_ = transactions[txUuid]
-				err := repository.PutChunk(request.Payload.(ReqPutChunk).Checksum, request.Payload.(ReqPutChunk).Data)
+				nbytes, err := repository.PutChunk(request.Payload.(ReqPutChunk).Checksum, request.Payload.(ReqPutChunk).Data)
 				result := Request{
 					Uuid: request.Uuid,
 					Type: "ResPutChunk",
 					Payload: ResPutChunk{
-						Err: err,
+						NBytes: nbytes,
+						Err:    err,
 					},
 				}
 				err = encoder.Encode(&result)
@@ -484,12 +488,13 @@ func handleConnection(rd io.Reader, wr io.Writer) {
 				logger.Trace("%s: PutObject(%s)", clientUuid, request.Payload.(ReqPutObject).Checksum)
 				txUuid := request.Payload.(ReqPutObject).Transaction
 				_ = transactions[txUuid]
-				err := repository.PutObject(request.Payload.(ReqPutObject).Checksum, request.Payload.(ReqPutObject).Data)
+				nbytes, err := repository.PutObject(request.Payload.(ReqPutObject).Checksum, request.Payload.(ReqPutObject).Data)
 				result := Request{
 					Uuid: request.Uuid,
 					Type: "ResPutObject",
 					Payload: ResPutObject{
-						Err: err,
+						NBytes: nbytes,
+						Err:    err,
 					},
 				}
 				err = encoder.Encode(&result)
@@ -526,12 +531,13 @@ func handleConnection(rd io.Reader, wr io.Writer) {
 				logger.Trace("%s: PutMetadata()", clientUuid)
 				txUuid := request.Payload.(ReqPutMetadata).Transaction
 				tx := transactions[txUuid]
-				err := tx.PutMetadata(request.Payload.(ReqPutMetadata).Data)
+				nbytes, err := tx.PutMetadata(request.Payload.(ReqPutMetadata).Data)
 				result := Request{
 					Uuid: request.Uuid,
 					Type: "ResPutMetadata",
 					Payload: ResPutMetadata{
-						Err: err,
+						NBytes: nbytes,
+						Err:    err,
 					},
 				}
 				err = encoder.Encode(&result)
@@ -547,12 +553,13 @@ func handleConnection(rd io.Reader, wr io.Writer) {
 				logger.Trace("%s: PutIndex()", clientUuid)
 				txUuid := request.Payload.(ReqPutIndex).Transaction
 				tx := transactions[txUuid]
-				err := tx.PutIndex(request.Payload.(ReqPutIndex).Data)
+				nbytes, err := tx.PutIndex(request.Payload.(ReqPutIndex).Data)
 				result := Request{
 					Uuid: request.Uuid,
 					Type: "ResPutIndex",
 					Payload: ResPutIndex{
-						Err: err,
+						NBytes: nbytes,
+						Err:    err,
 					},
 				}
 				err = encoder.Encode(&result)
@@ -568,12 +575,13 @@ func handleConnection(rd io.Reader, wr io.Writer) {
 				logger.Trace("%s: PutFilesystem()", clientUuid)
 				txUuid := request.Payload.(ReqPutFilesystem).Transaction
 				tx := transactions[txUuid]
-				err := tx.PutFilesystem(request.Payload.(ReqPutFilesystem).Data)
+				nbytes, err := tx.PutFilesystem(request.Payload.(ReqPutFilesystem).Data)
 				result := Request{
 					Uuid: request.Uuid,
 					Type: "ResPutFilesystem",
 					Payload: ResPutFilesystem{
-						Err: err,
+						NBytes: nbytes,
+						Err:    err,
 					},
 				}
 				err = encoder.Encode(&result)

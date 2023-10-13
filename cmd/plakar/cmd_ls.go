@@ -28,11 +28,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PlakarLabs/plakar/helpers"
+	"github.com/PlakarLabs/plakar/storage"
+	"github.com/PlakarLabs/plakar/vfs"
 	"github.com/dustin/go-humanize"
-	"github.com/poolpOrg/plakar/filesystem"
-	"github.com/poolpOrg/plakar/helpers"
-	"github.com/poolpOrg/plakar/snapshot"
-	"github.com/poolpOrg/plakar/storage"
 )
 
 func init() {
@@ -87,22 +86,22 @@ func list_snapshots(repository *storage.Repository, useUuid bool) {
 }
 
 func list_snapshot(repository *storage.Repository, args []string) {
-	snapshots, err := getSnapshots(repository, args)
+	vfss, err := getFilesystems(repository, args)
 	if err != nil {
-		log.Fatalf("%s: could not fetch snapshots list: %s", flag.CommandLine.Name(), err)
+		log.Fatalf("%s: could not fetch vfs list: %s", flag.CommandLine.Name(), err)
 	}
 
-	for offset, snap := range snapshots {
+	for offset, pvfs := range vfss {
 		_, prefix := parseSnapshotID(args[offset])
 		prefix = path.Clean(prefix)
 
 		content := make([]string, 0)
-		entries, _ := snap.Filesystem.LookupChildren(prefix)
+		entries, _ := pvfs.LookupChildren(prefix)
 
-		children := make(map[string]*filesystem.Fileinfo)
+		children := make(map[string]*vfs.FileInfo)
 
 		if len(entries) == 0 {
-			info, exists := snap.Filesystem.LookupInode(prefix)
+			info, exists := pvfs.LookupInode(prefix)
 			if !exists {
 				continue
 			}
@@ -110,7 +109,7 @@ func list_snapshot(repository *storage.Repository, args []string) {
 			content = append(content, prefix)
 		} else {
 			for _, name := range entries {
-				children[name], _ = snap.Filesystem.LookupInode(fmt.Sprintf("%s/%s", prefix, name))
+				children[name], _ = pvfs.LookupInode(fmt.Sprintf("%s/%s", prefix, name))
 				content = append(content, name)
 			}
 			sort.Slice(content, func(i, j int) bool {
@@ -120,35 +119,35 @@ func list_snapshot(repository *storage.Repository, args []string) {
 
 		for _, item := range content {
 			fi := children[item]
-			pwUserLookup, err := user.LookupId(fmt.Sprintf("%d", fi.Uid))
-			username := fmt.Sprintf("%d", fi.Uid)
+			pwUserLookup, err := user.LookupId(fmt.Sprintf("%d", fi.Uid()))
+			username := fmt.Sprintf("%d", fi.Uid())
 			if err == nil {
 				username = pwUserLookup.Username
 			}
 
-			grGroupLookup, err := user.LookupGroupId(fmt.Sprintf("%d", fi.Gid))
-			groupname := fmt.Sprintf("%d", fi.Gid)
+			grGroupLookup, err := user.LookupGroupId(fmt.Sprintf("%d", fi.Gid()))
+			groupname := fmt.Sprintf("%d", fi.Gid())
 			if err == nil {
 				groupname = grGroupLookup.Name
 			}
 			fmt.Fprintf(os.Stdout, "%s %s % 8s % 8s % 8s %s\n",
-				fi.ModTime.UTC().Format(time.RFC3339),
-				fi.Mode,
+				fi.ModTime().UTC().Format(time.RFC3339),
+				fi.Mode(),
 				username,
 				groupname,
-				humanize.Bytes(uint64(fi.Size)),
-				fi.Name)
+				humanize.Bytes(uint64(fi.Size())),
+				fi.Name())
 		}
 	}
 }
 
 func list_snapshot_recursive(repository *storage.Repository, args []string) {
-	snapshots, err := getSnapshots(repository, args)
+	vfss, err := getFilesystems(repository, args)
 	if err != nil {
-		log.Fatalf("%s: could not fetch snapshots list: %s", flag.CommandLine.Name(), err)
+		log.Fatalf("%s: could not fetch vfs list: %s", flag.CommandLine.Name(), err)
 	}
 
-	for offset, snapshot := range snapshots {
+	for offset, pvfs := range vfss {
 		_, prefix := parseSnapshotID(args[offset])
 
 		prefix = filepath.Clean(prefix)
@@ -161,7 +160,7 @@ func list_snapshot_recursive(repository *storage.Repository, args []string) {
 		}
 
 		directories := make([]string, 0)
-		directories = append(directories, snapshot.Filesystem.ListDirectories()...)
+		directories = append(directories, pvfs.ListDirectories()...)
 		sort.Slice(directories, func(i, j int) bool {
 			return strings.Compare(directories[i], directories[j]) < 0
 		})
@@ -170,52 +169,52 @@ func list_snapshot_recursive(repository *storage.Repository, args []string) {
 			if !helpers.PathIsWithin(name, prefix) {
 				continue
 			}
-			list_snapshot_recursive_directory(snapshot, name)
+			list_snapshot_recursive_directory(pvfs, name)
 		}
 
 		filenames := make([]string, 0)
-		filenames = append(filenames, snapshot.Filesystem.ListFiles()...)
+		filenames = append(filenames, pvfs.ListFiles()...)
 		sort.Slice(filenames, func(i, j int) bool {
 			return strings.Compare(filenames[i], filenames[j]) < 0
 		})
 
 		for _, name := range filenames {
-			fi, _ := snapshot.Filesystem.LookupInode(name)
+			fi, _ := pvfs.LookupInode(name)
 			if !helpers.PathIsWithin(name, prefix) && name != prefix {
 				continue
 			}
 
-			pwUserLookup, err := user.LookupId(fmt.Sprintf("%d", fi.Uid))
-			username := fmt.Sprintf("%d", fi.Uid)
+			pwUserLookup, err := user.LookupId(fmt.Sprintf("%d", fi.Uid()))
+			username := fmt.Sprintf("%d", fi.Uid())
 			if err == nil {
 				username = pwUserLookup.Username
 			}
 
-			grGroupLookup, err := user.LookupGroupId(fmt.Sprintf("%d", fi.Gid))
-			groupname := fmt.Sprintf("%d", fi.Gid)
+			grGroupLookup, err := user.LookupGroupId(fmt.Sprintf("%d", fi.Gid()))
+			groupname := fmt.Sprintf("%d", fi.Gid())
 			if err == nil {
 				groupname = grGroupLookup.Name
 			}
 			fmt.Fprintf(os.Stdout, "%s %s % 8s % 8s % 8s %s\n",
-				fi.ModTime.UTC().Format(time.RFC3339),
-				fi.Mode,
+				fi.ModTime().UTC().Format(time.RFC3339),
+				fi.Mode(),
 				username,
 				groupname,
-				humanize.Bytes(uint64(fi.Size)),
+				humanize.Bytes(uint64(fi.Size())),
 				name)
 		}
 	}
 }
 
-func list_snapshot_recursive_directory(snapshot *snapshot.Snapshot, directory string) {
+func list_snapshot_recursive_directory(pvfs *vfs.Filesystem, directory string) {
 	directories := make([]string, 0)
-	directories = append(directories, snapshot.Filesystem.ListDirectories()...)
+	directories = append(directories, pvfs.ListDirectories()...)
 	sort.Slice(directories, func(i, j int) bool {
 		return strings.Compare(directories[i], directories[j]) < 0
 	})
 
 	for _, name := range directories {
-		fi, _ := snapshot.Filesystem.LookupInode(name)
+		fi, _ := pvfs.LookupInode(name)
 		if !helpers.PathIsWithin(name, directory) {
 			continue
 		}
@@ -223,56 +222,56 @@ func list_snapshot_recursive_directory(snapshot *snapshot.Snapshot, directory st
 			continue
 		}
 
-		pwUserLookup, err := user.LookupId(fmt.Sprintf("%d", fi.Uid))
-		username := fmt.Sprintf("%d", fi.Uid)
+		pwUserLookup, err := user.LookupId(fmt.Sprintf("%d", fi.Uid()))
+		username := fmt.Sprintf("%d", fi.Uid())
 		if err == nil {
 			username = pwUserLookup.Username
 		}
 
-		grGroupLookup, err := user.LookupGroupId(fmt.Sprintf("%d", fi.Gid))
-		groupname := fmt.Sprintf("%d", fi.Gid)
+		grGroupLookup, err := user.LookupGroupId(fmt.Sprintf("%d", fi.Gid()))
+		groupname := fmt.Sprintf("%d", fi.Gid())
 		if err == nil {
 			groupname = grGroupLookup.Name
 		}
 		fmt.Fprintf(os.Stdout, "%s %s % 8s % 8s % 8s %s\n",
-			fi.ModTime.UTC().Format(time.RFC3339),
-			fi.Mode,
+			fi.ModTime().UTC().Format(time.RFC3339),
+			fi.Mode(),
 			username,
 			groupname,
-			humanize.Bytes(uint64(fi.Size)),
+			humanize.Bytes(uint64(fi.Size())),
 			name)
-		list_snapshot_recursive_directory(snapshot, name)
+		list_snapshot_recursive_directory(pvfs, name)
 	}
 
 	filenames := make([]string, 0)
-	filenames = append(filenames, snapshot.Filesystem.ListFiles()...)
+	filenames = append(filenames, pvfs.ListFiles()...)
 	sort.Slice(filenames, func(i, j int) bool {
 		return strings.Compare(filenames[i], filenames[j]) < 0
 	})
 
 	for _, name := range filenames {
-		fi, _ := snapshot.Filesystem.LookupInode(name)
+		fi, _ := pvfs.LookupInode(name)
 		if !helpers.PathIsWithin(name, directory) && name != directory {
 			continue
 		}
 
-		pwUserLookup, err := user.LookupId(fmt.Sprintf("%d", fi.Uid))
-		username := fmt.Sprintf("%d", fi.Uid)
+		pwUserLookup, err := user.LookupId(fmt.Sprintf("%d", fi.Uid()))
+		username := fmt.Sprintf("%d", fi.Uid())
 		if err == nil {
 			username = pwUserLookup.Username
 		}
 
-		grGroupLookup, err := user.LookupGroupId(fmt.Sprintf("%d", fi.Gid))
-		groupname := fmt.Sprintf("%d", fi.Gid)
+		grGroupLookup, err := user.LookupGroupId(fmt.Sprintf("%d", fi.Gid()))
+		groupname := fmt.Sprintf("%d", fi.Gid())
 		if err == nil {
 			groupname = grGroupLookup.Name
 		}
 		fmt.Fprintf(os.Stdout, "%s %s % 8s % 8s % 8s %s\n",
-			fi.ModTime.UTC().Format(time.RFC3339),
-			fi.Mode,
+			fi.ModTime().UTC().Format(time.RFC3339),
+			fi.Mode(),
 			username,
 			groupname,
-			humanize.Bytes(uint64(fi.Size)),
+			humanize.Bytes(uint64(fi.Size())),
 			name)
 	}
 }
