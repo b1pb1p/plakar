@@ -17,13 +17,13 @@
 package main
 
 import (
-	"crypto/sha256"
 	"flag"
 	"fmt"
 	"io"
 
-	"github.com/poolpOrg/plakar/logger"
-	"github.com/poolpOrg/plakar/storage"
+	"github.com/PlakarLabs/plakar/encryption"
+	"github.com/PlakarLabs/plakar/logger"
+	"github.com/PlakarLabs/plakar/storage"
 )
 
 func init() {
@@ -59,7 +59,8 @@ func cmd_checksum(ctx Plakar, repository *storage.Repository, args []string) int
 			continue
 		}
 
-		object := snapshot.Index.LookupObjectForPathname(pathname)
+		pathnameID := snapshot.Filesystem.GetPathnameID(pathname)
+		object := snapshot.Index.LookupObjectForPathname(pathnameID)
 		if object == nil {
 			logger.Error("%s: could not open file '%s'", flags.Name(), pathname)
 			errors++
@@ -69,20 +70,20 @@ func cmd_checksum(ctx Plakar, repository *storage.Repository, args []string) int
 		if enableFastChecksum {
 			fmt.Printf("%064x %s\n", object.Checksum, pathname)
 		} else {
-			rd, err := snapshot.NewReader(pathname)
+			rd, err := repository.NewReader(snapshot.Index, pathname)
 			if err != nil {
 				logger.Error("%s: %s: %s", flags.Name(), pathname, err)
 				errors++
 				continue
 			}
 
-			checksum := sha256.New()
-			if _, err := io.Copy(checksum, rd); err != nil {
+			hasher := encryption.GetHasher(repository.Configuration().Hashing)
+			if _, err := io.Copy(hasher, rd); err != nil {
 				logger.Error("%s: %s: %s", flags.Name(), pathname, err)
 				errors++
 				continue
 			}
-			fmt.Printf("%064x %s\n", checksum.Sum(nil), pathname)
+			fmt.Printf("%064x %s\n", hasher.Sum(nil), pathname)
 		}
 	}
 

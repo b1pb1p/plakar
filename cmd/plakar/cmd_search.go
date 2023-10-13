@@ -19,14 +19,14 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"strings"
 	"sync"
 
+	"github.com/PlakarLabs/plakar/snapshot"
+	"github.com/PlakarLabs/plakar/storage"
 	"github.com/blevesearch/bleve/v2"
 	"github.com/google/uuid"
-	"github.com/poolpOrg/plakar/snapshot"
-	"github.com/poolpOrg/plakar/storage"
 )
 
 func init() {
@@ -68,20 +68,17 @@ func cmd_search(ctx Plakar, repository *storage.Repository, args []string) int {
 						for _, object := range snap.Index.LookupObjectsForContentType(contentType) {
 							objectID, _ := snap.Index.ChecksumToId(object)
 							for _, pathnameID := range snap.Index.ObjectToPathnames[objectID] {
-								_pathname, _ := snap.Index.GetPathname(pathnameID)
-
+								_pathname := snap.Filesystem.GetPathname(pathnameID)
 								maxConcurrency <- true
 								wg.Add(1)
 								go func(pathname string) {
-									fmt.Println(pathname)
-
 									rd, err := snap.NewReader(pathname)
 									if err != nil {
 										fmt.Println(err)
 										return
 									}
 
-									data, err := ioutil.ReadAll(rd)
+									data, err := io.ReadAll(rd)
 									if err != nil {
 										fmt.Println(err)
 										return

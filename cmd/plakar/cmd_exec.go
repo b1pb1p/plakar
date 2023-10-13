@@ -24,8 +24,8 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/poolpOrg/plakar/logger"
-	"github.com/poolpOrg/plakar/storage"
+	"github.com/PlakarLabs/plakar/logger"
+	"github.com/PlakarLabs/plakar/storage"
 )
 
 func init() {
@@ -51,7 +51,8 @@ func cmd_exec(ctx Plakar, repository *storage.Repository, args []string) int {
 	snapshot := snapshots[0]
 
 	_, pathname := parseSnapshotID(flags.Args()[0])
-	object := snapshot.Index.LookupObjectForPathname(pathname)
+	pathnameID := snapshot.Filesystem.GetPathnameID(pathname)
+	object := snapshot.Index.LookupObjectForPathname(pathnameID)
 	if object == nil {
 		return 0
 	}

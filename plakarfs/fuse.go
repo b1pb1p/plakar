@@ -6,14 +6,14 @@ import (
 	"os"
 	"sync"
 
+	"github.com/PlakarLabs/plakar/metadata"
+	"github.com/PlakarLabs/plakar/snapshot"
+	"github.com/PlakarLabs/plakar/storage"
+	"github.com/PlakarLabs/plakar/vfs"
 	"github.com/google/uuid"
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
 	"github.com/jacobsa/fuse/fuseutil"
-	"github.com/poolpOrg/plakar/filesystem"
-	"github.com/poolpOrg/plakar/metadata"
-	"github.com/poolpOrg/plakar/snapshot"
-	"github.com/poolpOrg/plakar/storage"
 )
 
 var inodeMutex sync.Mutex
@@ -104,7 +104,7 @@ func (fs *plakarFS) getMetadata(snapshotID uuid.UUID) (*metadata.Metadata, error
 	return entry.(*metadata.Metadata), nil
 }
 
-func (fs *plakarFS) getFilesystem(snapshotID uuid.UUID) (*filesystem.Filesystem, error) {
+func (fs *plakarFS) getFilesystem(snapshotID uuid.UUID) (*vfs.Filesystem, error) {
 	entry, exists := fs.fsCache.Load(snapshotID)
 	if !exists {
 		filesystem, _, err := snapshot.GetFilesystem(fs.repository, snapshotID)
@@ -114,7 +114,7 @@ func (fs *plakarFS) getFilesystem(snapshotID uuid.UUID) (*filesystem.Filesystem,
 		fs.fsCache.Store(snapshotID, filesystem)
 		return filesystem, err
 	}
-	return entry.(*filesystem.Filesystem), nil
+	return entry.(*vfs.Filesystem), nil
 }
 
 func (fs *plakarFS) getAttributes(id fuseops.InodeID) (fuseops.InodeAttributes, error) {
@@ -162,10 +162,10 @@ func (fs *plakarFS) getAttributes(id fuseops.InodeID) (fuseops.InodeAttributes, 
 	}
 	return fuseops.InodeAttributes{
 		Nlink: 1,
-		Mode:  fileinfo.Mode,
-		Ctime: fileinfo.ModTime,
-		Mtime: fileinfo.ModTime,
-		Size:  uint64(fileinfo.Size),
+		Mode:  fileinfo.Mode(),
+		Ctime: fileinfo.ModTime(),
+		Mtime: fileinfo.ModTime(),
+		Size:  uint64(fileinfo.Size()),
 		Uid:   uint32(os.Geteuid()),
 		Gid:   uint32(os.Getgid()),
 	}, nil
@@ -251,12 +251,12 @@ func (fs *plakarFS) LookUpInode(
 
 	op.Entry.Child = inodeID
 	op.Entry.Attributes = fuseops.InodeAttributes{
-		Size:  uint64(stat.Size),
+		Size:  uint64(stat.Size()),
 		Nlink: 1,
-		Mode:  stat.Mode,
-		Ctime: stat.ModTime,
-		Atime: stat.ModTime,
-		Mtime: stat.ModTime,
+		Mode:  stat.Mode(),
+		Ctime: stat.ModTime(),
+		Atime: stat.ModTime(),
+		Mtime: stat.ModTime(),
 	}
 
 	return nil
@@ -301,12 +301,12 @@ func (fs *plakarFS) ReadFile(
 		return fuse.ENOENT
 	}
 
-	rd, err := snap.NewReader(inode.path[37:])
+	rd, err := fs.repository.NewReader(snap.Index, inode.path[37:])
 	if err != nil {
 		return fuse.EIO
 	}
 
-	if op.Offset > info.Size {
+	if op.Offset > info.Size() {
 		return nil
 	}
 
@@ -464,7 +464,7 @@ func (fs *plakarFS) ReadDir(
 			}
 
 			dtype := fuseutil.DT_Directory
-			if stat.Mode.IsRegular() {
+			if stat.Mode().IsRegular() {
 				dtype = fuseutil.DT_Char
 			}
 

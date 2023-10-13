@@ -27,9 +27,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/poolpOrg/plakar/helpers"
-	"github.com/poolpOrg/plakar/logger"
-	"github.com/poolpOrg/plakar/storage"
+	"github.com/PlakarLabs/plakar/helpers"
+	"github.com/PlakarLabs/plakar/logger"
+	"github.com/PlakarLabs/plakar/storage"
 )
 
 func init() {
@@ -77,13 +77,13 @@ func cmd_tarball(ctx Plakar, repository *storage.Repository, args []string) int 
 	for offset, snapshot := range snapshots {
 		_, prefix := parseSnapshotID(flags.Args()[offset])
 
-		for _, file := range snapshot.Index.ListPathnames() {
+		for _, file := range snapshot.Filesystem.ListStat() {
+
 			if prefix != "" {
 				if !helpers.PathIsWithin(file, prefix) {
 					continue
 				}
 			}
-
 			info, _ := snapshot.Filesystem.LookupInode(file)
 			filepath := file
 			if tarballRebase {
@@ -91,9 +91,9 @@ func cmd_tarball(ctx Plakar, repository *storage.Repository, args []string) int 
 			}
 			header := &tar.Header{
 				Name:    filepath,
-				Size:    info.Size,
-				Mode:    int64(info.Mode),
-				ModTime: info.ModTime,
+				Size:    info.Size(),
+				Mode:    int64(info.Mode()),
+				ModTime: info.ModTime(),
 			}
 
 			err = tarWriter.WriteHeader(header)
@@ -102,11 +102,12 @@ func cmd_tarball(ctx Plakar, repository *storage.Repository, args []string) int 
 				continue
 			}
 
-			rd, err := snapshot.NewReader(file)
+			rd, err := repository.NewReader(snapshot.Index, file)
 			if err != nil {
 				logger.Error("could not find file %s", file)
 				continue
 			}
+
 			_, err = io.Copy(tarWriter, rd)
 			if err != nil {
 				logger.Error("could not write file %s: %s", file, err)

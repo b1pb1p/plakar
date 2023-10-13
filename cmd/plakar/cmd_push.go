@@ -19,13 +19,16 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
+	"path"
 	"runtime"
+	"strings"
 
+	"github.com/PlakarLabs/plakar/logger"
+	"github.com/PlakarLabs/plakar/snapshot"
+	"github.com/PlakarLabs/plakar/storage"
 	"github.com/google/uuid"
-	"github.com/poolpOrg/plakar/logger"
-	"github.com/poolpOrg/plakar/snapshot"
-	"github.com/poolpOrg/plakar/storage"
 )
 
 func init() {
@@ -67,9 +70,18 @@ func cmd_push(ctx Plakar, repository *storage.Repository, args []string) int {
 	snap.Metadata.Tags = tags
 
 	if flags.NArg() == 0 {
-		err = snap.Push([]string{dir}, opt_progress)
+		err = snap.Push(dir, opt_progress)
+	} else if flags.NArg() == 1 {
+		var cleanPath string
+
+		if !strings.HasPrefix(flags.Arg(0), "/") {
+			cleanPath = path.Clean(dir + "/" + flags.Arg(0))
+		} else {
+			cleanPath = path.Clean(flags.Arg(0))
+		}
+		err = snap.Push(cleanPath, opt_progress)
 	} else {
-		err = snap.Push(flags.Args(), opt_progress)
+		log.Fatal("only one directory pushable")
 	}
 
 	if err != nil {

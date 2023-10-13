@@ -23,42 +23,42 @@ import (
 	"log"
 	"strings"
 
+	"github.com/PlakarLabs/plakar/logger"
+	"github.com/PlakarLabs/plakar/storage"
 	"github.com/dustin/go-humanize"
-	"github.com/poolpOrg/plakar/logger"
-	"github.com/poolpOrg/plakar/storage"
 )
 
 type JSONChunk struct {
-	Start  uint
+	Start  uint64
 	Length uint
 }
 
 type JSONObject struct {
-	Chunks      []uint64
-	ContentType uint64
+	Chunks      []uint32
+	ContentType uint32
 }
 
 type JSONIndex struct {
 
 	// Pathnames -> Object checksum
-	Pathnames map[string]uint64
+	Pathnames map[uint32]uint64
 
-	ContentTypes map[string]uint64
+	ContentTypes map[string]uint32
 
 	// Object checksum -> Object
-	Objects map[uint64]*JSONObject
+	Objects map[uint32]*JSONObject
 
 	// Chunk checksum -> Chunk
-	Chunks map[uint64]*JSONChunk
+	Chunks map[uint32]*JSONChunk
 
 	// Chunk checksum -> Object checksums
-	ChunkToObjects map[uint64][]uint64
+	ChunkToObjects map[uint32][]uint32
 
 	// Object checksum -> Filenames
-	ObjectToPathnames map[uint64][]uint64
+	ObjectToPathnames map[uint32][]uint32
 
 	// Content Type -> Object checksums
-	ContentTypeToObjects map[uint64][]uint64
+	ContentTypeToObjects map[uint32][]uint32
 }
 
 func init() {
@@ -103,25 +103,25 @@ func cmd_info(ctx Plakar, repository *storage.Repository, args []string) int {
 
 		for _, index := range indexes {
 			jindex := JSONIndex{}
-			jindex.Pathnames = make(map[string]uint64)
-			jindex.ContentTypes = make(map[string]uint64)
-			jindex.Objects = make(map[uint64]*JSONObject)
-			jindex.Chunks = make(map[uint64]*JSONChunk)
-			jindex.ChunkToObjects = make(map[uint64][]uint64)
-			jindex.ObjectToPathnames = make(map[uint64][]uint64)
-			jindex.ContentTypeToObjects = make(map[uint64][]uint64)
-
-			for pathname, checksumID := range index.Pathnames {
-				jindex.Pathnames[pathname] = checksumID
-			}
+			jindex.ContentTypes = make(map[string]uint32)
+			jindex.Pathnames = make(map[uint32]uint64)
+			jindex.Objects = make(map[uint32]*JSONObject)
+			jindex.Chunks = make(map[uint32]*JSONChunk)
+			jindex.ChunkToObjects = make(map[uint32][]uint32)
+			jindex.ObjectToPathnames = make(map[uint32][]uint32)
+			jindex.ContentTypeToObjects = make(map[uint32][]uint32)
 
 			for pathname, checksumID := range index.ContentTypes {
 				jindex.ContentTypes[pathname] = checksumID
 			}
 
+			for checksumID, pathnameID := range index.Pathnames {
+				jindex.Pathnames[checksumID] = pathnameID
+			}
+
 			for checksumID, object := range index.Objects {
 				jobject := &JSONObject{
-					Chunks:      make([]uint64, 0),
+					Chunks:      make([]uint32, 0),
 					ContentType: object.ContentType,
 				}
 
@@ -142,18 +142,18 @@ func cmd_info(ctx Plakar, repository *storage.Repository, args []string) int {
 			}
 
 			for checksum, objects := range index.ChunkToObjects {
-				jindex.ChunkToObjects[checksum] = make([]uint64, 0)
+				jindex.ChunkToObjects[checksum] = make([]uint32, 0)
 				for _, objChecksum := range objects {
 					jindex.ChunkToObjects[checksum] = append(jindex.ChunkToObjects[checksum], objChecksum)
 				}
 			}
 
-			for checksumID, pathnames := range index.ObjectToPathnames {
-				jindex.ObjectToPathnames[checksumID] = pathnames
-			}
+			//for checksumID, pathnames := range index.ObjectToPathnames {
+			//	jindex.ObjectToPathnames[checksumID] = pathnames
+			//}
 
 			for contentType, objects := range index.ContentTypeToObjects {
-				jindex.ContentTypeToObjects[contentType] = make([]uint64, 0)
+				jindex.ContentTypeToObjects[contentType] = make([]uint32, 0)
 				for _, objChecksum := range objects {
 					jindex.ContentTypeToObjects[contentType] = append(jindex.ContentTypeToObjects[contentType], objChecksum)
 				}
@@ -206,24 +206,24 @@ func cmd_info(ctx Plakar, repository *storage.Repository, args []string) int {
 			fmt.Printf("NonRegular: %d\n", metadata.NonRegularCount)
 			fmt.Printf("Pathnames: %d\n", metadata.PathnamesCount)
 
-			fmt.Printf("Objects: %d\n", metadata.ObjectsCount)
-			fmt.Printf("ObjectsTransferCount: %d\n", metadata.ObjectsTransferCount)
-			fmt.Printf("ObjectsTransferSize: %s (%d bytes)\n", humanize.Bytes(metadata.ObjectsTransferSize), metadata.ObjectsTransferSize)
+			fmt.Printf("Objects.Count: %d\n", metadata.ObjectsCount)
+			fmt.Printf("Objects.TransferCount: %d\n", metadata.ObjectsTransferCount)
+			fmt.Printf("Objects.TransferSize: %s (%d bytes)\n", humanize.Bytes(metadata.ObjectsTransferSize), metadata.ObjectsTransferSize)
 
-			fmt.Printf("Chunks: %d\n", metadata.ChunksCount)
-			fmt.Printf("ChunksSize: %d\n", metadata.ChunksSize)
-			fmt.Printf("ChunksTransferCount: %d\n", metadata.ChunksTransferCount)
-			fmt.Printf("ChunksTransferSize: %s (%d bytes)\n", humanize.Bytes(metadata.ChunksTransferSize), metadata.ChunksTransferSize)
+			fmt.Printf("Chunks.Count: %d\n", metadata.ChunksCount)
+			fmt.Printf("Chunks.Size: %d\n", metadata.ChunksSize)
+			fmt.Printf("Chunks,TransferCount: %d\n", metadata.ChunksTransferCount)
+			fmt.Printf("Chunks.TransferSize: %s (%d bytes)\n", humanize.Bytes(metadata.ChunksTransferSize), metadata.ChunksTransferSize)
 
-			fmt.Printf("SnapshotSize: %s (%d bytes)\n", humanize.Bytes(metadata.ScanProcessedSize), metadata.ScanProcessedSize)
+			fmt.Printf("Snapshot.Size: %s (%d bytes)\n", humanize.Bytes(metadata.ScanProcessedSize), metadata.ScanProcessedSize)
 
-			fmt.Printf("MappingIndexChecksum: %064x\n", metadata.IndexChecksum)
-			fmt.Printf("MappingIndexDiskSize: %s (%d bytes)\n", humanize.Bytes(metadata.IndexDiskSize), metadata.IndexDiskSize)
-			fmt.Printf("MappingIndexMemorySize: %s (%d bytes)\n", humanize.Bytes(metadata.IndexMemorySize), metadata.IndexMemorySize)
+			fmt.Printf("Index.Checksum: %064x\n", metadata.IndexChecksum)
+			fmt.Printf("Index.DiskSize: %s (%d bytes)\n", humanize.Bytes(metadata.IndexDiskSize), metadata.IndexDiskSize)
+			fmt.Printf("Index.MemorySize: %s (%d bytes)\n", humanize.Bytes(metadata.IndexMemorySize), metadata.IndexMemorySize)
 
-			fmt.Printf("FilesystemIndexChecksum: %064x\n", metadata.FilesystemChecksum)
-			fmt.Printf("FilesystemIndexDiskSize: %s (%d bytes)\n", humanize.Bytes(metadata.FilesystemDiskSize), metadata.FilesystemDiskSize)
-			fmt.Printf("FilesystemIndexMemorySize: %s (%d bytes)\n", humanize.Bytes(metadata.FilesystemMemorySize), metadata.FilesystemMemorySize)
+			fmt.Printf("VFS.Checksum: %064x\n", metadata.FilesystemChecksum)
+			fmt.Printf("VFS.DiskSize: %s (%d bytes)\n", humanize.Bytes(metadata.FilesystemDiskSize), metadata.FilesystemDiskSize)
+			fmt.Printf("VFS.MemorySize: %s (%d bytes)\n", humanize.Bytes(metadata.FilesystemMemorySize), metadata.FilesystemMemorySize)
 
 		}
 	}
@@ -252,6 +252,8 @@ func info_plakar(repository *storage.Repository) int {
 	} else {
 		fmt.Println("Compression:", "no")
 	}
+
+	fmt.Println("Hashing:", repository.Configuration().Hashing)
 
 	fmt.Println("Snapshots:", len(metadatas))
 	totalSize := uint64(0)

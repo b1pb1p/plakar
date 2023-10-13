@@ -13,19 +13,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PlakarLabs/plakar/cache"
+	"github.com/PlakarLabs/plakar/config"
+	"github.com/PlakarLabs/plakar/encryption"
+	"github.com/PlakarLabs/plakar/helpers"
+	"github.com/PlakarLabs/plakar/logger"
+	"github.com/PlakarLabs/plakar/profiler"
+	"github.com/PlakarLabs/plakar/storage"
 	"github.com/denisbrodbeck/machineid"
 	"github.com/google/uuid"
-	"github.com/poolpOrg/plakar/cache"
-	"github.com/poolpOrg/plakar/encryption"
-	"github.com/poolpOrg/plakar/helpers"
-	"github.com/poolpOrg/plakar/logger"
-	"github.com/poolpOrg/plakar/profiler"
-	"github.com/poolpOrg/plakar/storage"
 
-	_ "github.com/poolpOrg/plakar/storage/client"
-	_ "github.com/poolpOrg/plakar/storage/database"
-	_ "github.com/poolpOrg/plakar/storage/fs"
-	_ "github.com/poolpOrg/plakar/storage/s3"
+	_ "github.com/PlakarLabs/plakar/storage/client"
+	_ "github.com/PlakarLabs/plakar/storage/database"
+	_ "github.com/PlakarLabs/plakar/storage/fs"
+	_ "github.com/PlakarLabs/plakar/storage/s3"
+
+	_ "github.com/PlakarLabs/plakar/vfs/importer/fs"
+	_ "github.com/PlakarLabs/plakar/vfs/importer/imap"
+	_ "github.com/PlakarLabs/plakar/vfs/importer/s3"
 )
 
 type Plakar struct {
@@ -36,7 +41,8 @@ type Plakar struct {
 	CommandLine string
 	MachineID   string
 
-	Cache *cache.Cache
+	Cache  *cache.Cache
+	Config *config.ConfigAPI
 
 	KeyFromFile string
 }
@@ -86,10 +92,12 @@ func entryPoint() int {
 	opt_usernameDefault := opt_userDefault.Username
 	opt_repositoryDefault := path.Join(opt_userDefault.HomeDir, ".plakar")
 	opt_cacheDefault := path.Join(opt_userDefault.HomeDir, ".plakar-cache")
+	opt_configDefault := path.Join(opt_userDefault.HomeDir, ".plakarconfig")
 
 	// command line overrides
 	var opt_cpuCount int
 	var opt_cachedir string
+	var opt_configfile string
 	var opt_username string
 	var opt_hostname string
 	var opt_cpuProfile string
@@ -101,6 +109,7 @@ func entryPoint() int {
 	var opt_profiling bool
 	var opt_keyfile string
 
+	flag.StringVar(&opt_configfile, "config", opt_configDefault, "configuration file")
 	flag.StringVar(&opt_cachedir, "cache", opt_cacheDefault, "default cache directory")
 	flag.IntVar(&opt_cpuCount, "cpu", opt_cpuDefault, "limit the number of usable cores")
 	flag.StringVar(&opt_username, "username", opt_usernameDefault, "default username")
@@ -154,6 +163,7 @@ func entryPoint() int {
 	ctx.CommandLine = strings.Join(os.Args, " ")
 	ctx.MachineID = opt_machineIdDefault
 	ctx.KeyFromFile = secretFromKeyfile
+	ctx.Config = config.NewConfigAPI(opt_configfile)
 
 	if flag.NArg() == 0 {
 		fmt.Fprintf(os.Stderr, "%s: a command must be provided\n", flag.CommandLine.Name())
@@ -184,6 +194,14 @@ func entryPoint() int {
 		command, args = flag.Arg(2), flag.Args()[3:]
 	}
 
+	if strings.HasPrefix(ctx.Repository, "@") {
+		if location, err := ctx.Config.GetRepositoryParameter(ctx.Repository[1:], "location"); err != nil {
+			log.Fatalf("%s: unknown repository alias: %s", flag.CommandLine.Name(), ctx.Repository)
+		} else {
+			ctx.Repository = location
+		}
+	}
+
 	// cmd_create must be ran after workdir.New() but before other commands
 	if command == "create" {
 		return cmd_create(ctx, args)
@@ -191,6 +209,10 @@ func entryPoint() int {
 
 	if command == "stdio" {
 		return cmd_stdio(ctx, args)
+	}
+
+	if command == "config" {
+		return cmd_config(ctx, args)
 	}
 
 	if !opt_nocache {

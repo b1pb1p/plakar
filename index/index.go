@@ -1,103 +1,110 @@
 package index
 
 import (
-	"path/filepath"
 	"sync"
+	"time"
 
-	"github.com/poolpOrg/plakar/objects"
+	"github.com/PlakarLabs/plakar/objects"
+	"github.com/PlakarLabs/plakar/profiler"
 
-	"github.com/poolpOrg/plakar/logger"
+	"github.com/PlakarLabs/plakar/logger"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
 type IndexObject struct {
-	Chunks      []uint64
-	ContentType uint64
+	Chunks      []uint32
+	ContentType uint32
 }
 
 type IndexChunk struct {
-	Start  uint
+	Start  uint64
 	Length uint
 }
 
 type Index struct {
 	muChecksums      sync.Mutex
-	Checksums        map[[32]byte]uint64
-	checksumsInverse map[uint64][32]byte
+	checksumID       uint32
+	Checksums        map[[32]byte]uint32
+	checksumsInverse map[uint32][32]byte
 
-	muPathnames      sync.Mutex
-	Pathnames        map[string]uint64
-	pathnamesInverse map[uint64]string
+	muPathnames sync.Mutex
+	Pathnames   map[uint32]uint64
 
 	muContentType       sync.Mutex
-	ContentTypes        map[string]uint64
-	contentTypesInverse map[uint64]string
+	ContentTypes        map[string]uint32
+	contentTypesInverse map[uint32]string
 
 	muPathnameToObject sync.Mutex
-	PathnameToObject   map[uint64]uint64
-	ObjectToPathnames  map[uint64][]uint64
+	PathnameToObject   map[uint64]uint32
+	ObjectToPathnames  map[uint32][]uint64
 
 	// Object checksum -> Object
 	muObjects sync.Mutex
-	Objects   map[uint64]IndexObject
+	Objects   map[uint32]IndexObject
 
 	// Chunk checksum -> Chunk
 	muChunks       sync.Mutex
-	Chunks         map[uint64]IndexChunk
-	ChunkToObjects map[uint64][]uint64
+	Chunks         map[uint32]IndexChunk
+	ChunkToObjects map[uint32][]uint32
 
 	// Content Type -> Object checksums
 	muContentTypeToObjects sync.Mutex
-	ContentTypeToObjects   map[uint64][]uint64
+	contentTypeID          uint32
+	ContentTypeToObjects   map[uint32][]uint32
 }
 
 func NewIndex() *Index {
 	return &Index{
-		Checksums:        make(map[[32]byte]uint64),
-		checksumsInverse: make(map[uint64][32]byte),
+		Checksums:        make(map[[32]byte]uint32),
+		checksumsInverse: make(map[uint32][32]byte),
 
-		Pathnames:        make(map[string]uint64),
-		pathnamesInverse: make(map[uint64]string),
+		Pathnames: make(map[uint32]uint64),
 
-		ContentTypes:        make(map[string]uint64),
-		contentTypesInverse: make(map[uint64]string),
+		ContentTypes:        make(map[string]uint32),
+		contentTypesInverse: make(map[uint32]string),
 
-		PathnameToObject:  make(map[uint64]uint64),
-		ObjectToPathnames: make(map[uint64][]uint64),
+		PathnameToObject:  make(map[uint64]uint32),
+		ObjectToPathnames: make(map[uint32][]uint64),
 
-		Objects:        make(map[uint64]IndexObject),
-		Chunks:         make(map[uint64]IndexChunk),
-		ChunkToObjects: make(map[uint64][]uint64),
+		Objects:        make(map[uint32]IndexObject),
+		Chunks:         make(map[uint32]IndexChunk),
+		ChunkToObjects: make(map[uint32][]uint32),
 
-		ContentTypeToObjects: make(map[uint64][]uint64),
+		ContentTypeToObjects: make(map[uint32][]uint32),
 	}
 }
 
 func NewIndexFromBytes(serialized []byte) (*Index, error) {
+	t0 := time.Now()
+	defer func() {
+		profiler.RecordEvent("index.NewIndexFromBytes", time.Since(t0))
+		logger.Trace("index", "NewIndexFromBytes(...): %s", time.Since(t0))
+	}()
+
 	var index Index
 	if err := msgpack.Unmarshal(serialized, &index); err != nil {
 		return nil, err
 	}
 
-	index.checksumsInverse = make(map[uint64][32]byte)
+	index.checksumsInverse = make(map[uint32][32]byte)
 	for checksum, checksumID := range index.Checksums {
 		index.checksumsInverse[checksumID] = checksum
 	}
 
-	index.pathnamesInverse = make(map[uint64]string)
-	for pathname, pathnameID := range index.Pathnames {
-		index.pathnamesInverse[pathnameID] = pathname
-	}
-
-	index.contentTypesInverse = make(map[uint64]string)
+	index.contentTypesInverse = make(map[uint32]string)
 	for contentType, contentTypeID := range index.ContentTypes {
 		index.contentTypesInverse[contentTypeID] = contentType
 	}
-
 	return &index, nil
 }
 
 func (index *Index) Serialize() ([]byte, error) {
+	t0 := time.Now()
+	defer func() {
+		profiler.RecordEvent("index.Serialize", time.Since(t0))
+		logger.Trace("index", "Serialize(): %s", time.Since(t0))
+	}()
+
 	serialized, err := msgpack.Marshal(index)
 	if err != nil {
 		return nil, err
@@ -106,18 +113,22 @@ func (index *Index) Serialize() ([]byte, error) {
 }
 
 // checksums
-func (index *Index) addChecksum(checksum [32]byte) {
+func (index *Index) addChecksum(checksum [32]byte) uint32 {
 	index.muChecksums.Lock()
 	defer index.muChecksums.Unlock()
 
-	if _, exists := index.Checksums[checksum]; !exists {
-		checksumID := uint64(len(index.Checksums))
-		index.Checksums[checksum] = checksumID
-		index.checksumsInverse[checksumID] = checksum
+	if checksumID, exists := index.Checksums[checksum]; !exists {
+		index.Checksums[checksum] = index.checksumID
+		index.checksumsInverse[index.checksumID] = checksum
+		checksumID = index.checksumID
+		index.checksumID++
+		return checksumID
+	} else {
+		return checksumID
 	}
 }
 
-func (index *Index) ChecksumToId(checksum [32]byte) (uint64, bool) {
+func (index *Index) ChecksumToId(checksum [32]byte) (uint32, bool) {
 	index.muChecksums.Lock()
 	defer index.muChecksums.Unlock()
 
@@ -125,40 +136,12 @@ func (index *Index) ChecksumToId(checksum [32]byte) (uint64, bool) {
 	return checksumID, exists
 }
 
-func (index *Index) IdToChecksum(checksumID uint64) ([32]byte, bool) {
+func (index *Index) IdToChecksum(checksumID uint32) ([32]byte, bool) {
 	index.muChecksums.Lock()
 	defer index.muChecksums.Unlock()
 
 	checksum, exists := index.checksumsInverse[checksumID]
 	return checksum, exists
-}
-
-// pathnames
-func (index *Index) addPathname(pathname string) {
-	index.muPathnames.Lock()
-	defer index.muPathnames.Unlock()
-
-	if _, exists := index.Pathnames[pathname]; !exists {
-		pathnameID := uint64(len(index.Pathnames))
-		index.Pathnames[pathname] = pathnameID
-		index.pathnamesInverse[pathnameID] = pathname
-	}
-}
-
-func (index *Index) GetPathnameID(pathname string) (uint64, bool) {
-	index.muPathnames.Lock()
-	defer index.muPathnames.Unlock()
-
-	pathnameID, exists := index.Pathnames[pathname]
-	return pathnameID, exists
-}
-
-func (index *Index) GetPathname(pathnameID uint64) (string, bool) {
-	index.muPathnames.Lock()
-	defer index.muPathnames.Unlock()
-
-	pathname, exists := index.pathnamesInverse[pathnameID]
-	return pathname, exists
 }
 
 // content types
@@ -167,13 +150,13 @@ func (index *Index) addContentType(contentType string) {
 	defer index.muContentType.Unlock()
 
 	if _, exists := index.ContentTypes[contentType]; !exists {
-		contentTypeID := uint64(len(index.ContentTypes))
-		index.ContentTypes[contentType] = contentTypeID
-		index.contentTypesInverse[contentTypeID] = contentType
+		index.ContentTypes[contentType] = index.contentTypeID
+		index.contentTypesInverse[index.contentTypeID] = contentType
+		index.contentTypeID++
 	}
 }
 
-func (index *Index) GetContentTypeID(contentType string) (uint64, bool) {
+func (index *Index) getContentTypeID(contentType string) (uint32, bool) {
 	index.muContentType.Lock()
 	defer index.muContentType.Unlock()
 
@@ -182,7 +165,7 @@ func (index *Index) GetContentTypeID(contentType string) (uint64, bool) {
 	return contentTypeID, exists
 }
 
-func (index *Index) GetContentType(contentTypeID uint64) (string, bool) {
+func (index *Index) getContentType(contentTypeID uint32) (string, bool) {
 	index.muContentType.Lock()
 	defer index.muContentType.Unlock()
 
@@ -190,22 +173,22 @@ func (index *Index) GetContentType(contentTypeID uint64) (string, bool) {
 	return contentType, exists
 }
 
-func (index *Index) linkObjectToContentType(checksumID uint64, contentTypeID uint64) {
+func (index *Index) linkObjectToContentType(checksumID uint32, contentTypeID uint32) {
 	index.muContentTypeToObjects.Lock()
 	defer index.muContentTypeToObjects.Unlock()
 
 	if _, exists := index.ContentTypeToObjects[contentTypeID]; !exists {
-		index.ContentTypeToObjects[contentTypeID] = make([]uint64, 0)
+		index.ContentTypeToObjects[contentTypeID] = make([]uint32, 0)
 	}
 	index.ContentTypeToObjects[contentTypeID] = append(index.ContentTypeToObjects[contentTypeID], checksumID)
 }
 
-func (index *Index) linkChunkToObject(chunkChecksumID uint64, objectChecksumID uint64) {
+func (index *Index) linkChunkToObject(chunkChecksumID uint32, objectChecksumID uint32) {
 	index.muChunks.Lock()
 	defer index.muChunks.Unlock()
 
 	if _, exists := index.ChunkToObjects[chunkChecksumID]; !exists {
-		index.ChunkToObjects[chunkChecksumID] = make([]uint64, 0)
+		index.ChunkToObjects[chunkChecksumID] = make([]uint32, 0)
 	}
 	index.ChunkToObjects[chunkChecksumID] = append(index.ChunkToObjects[chunkChecksumID], objectChecksumID)
 }
@@ -236,17 +219,6 @@ func (index *Index) ListChunks() [][32]byte {
 			panic("ListChunks: corrupted index")
 		}
 		ret = append(ret, checksum)
-	}
-	return ret
-}
-
-func (index *Index) ListPathnames() []string {
-	index.muPathnames.Lock()
-	defer index.muPathnames.Unlock()
-
-	ret := make([]string, 0)
-	for pathname := range index.Pathnames {
-		ret = append(ret, pathname)
 	}
 	return ret
 }
@@ -294,14 +266,14 @@ func (index *Index) AddObject(object *objects.Object) {
 		panic("AddObject: corrupted index: could not find object checksum")
 	}
 
-	contentTypeID, exists := index.GetContentTypeID(object.ContentType)
+	contentTypeID, exists := index.getContentTypeID(object.ContentType)
 	if !exists {
 		panic("AddObject: corrupted index: could not find content type")
 	}
 
 	index.linkObjectToContentType(objectChecksumID, contentTypeID)
 
-	chunks := make([]uint64, 0)
+	chunks := make([]uint32, 0)
 	for _, checksum := range object.Chunks {
 		chunkChecksumID, exists := index.ChecksumToId(checksum)
 		if !exists {
@@ -318,17 +290,21 @@ func (index *Index) AddObject(object *objects.Object) {
 	}
 }
 
-func (index *Index) LinkPathnameToObject(pathname string, object *objects.Object) {
+func (index *Index) RecordPathnameChecksum(pathnameChecksum [32]byte, pathnameID uint64) {
+	index.muPathnames.Lock()
+	defer index.muPathnames.Unlock()
+
+	checksumID := index.addChecksum(pathnameChecksum)
+
+	if _, exists := index.Pathnames[checksumID]; !exists {
+		index.Pathnames[checksumID] = pathnameID
+	}
+
+}
+
+func (index *Index) LinkPathnameToObject(pathnameID uint64, object *objects.Object) {
 	index.muPathnameToObject.Lock()
 	defer index.muPathnameToObject.Unlock()
-
-	pathname = filepath.Clean(pathname)
-	index.addPathname(pathname)
-
-	pathnameID, exists := index.GetPathnameID(pathname)
-	if !exists {
-		panic("LinkPathnameToObject: corrupted index: could not find pathname")
-	}
 
 	checksumID, exists := index.ChecksumToId(object.Checksum)
 	if !exists {
@@ -385,7 +361,7 @@ func (index *Index) LookupObject(checksum [32]byte) *objects.Object {
 		chunks = append(chunks, checksum)
 	}
 
-	contentTypeID, exists := index.GetContentType(object.ContentType)
+	contentTypeID, exists := index.getContentType(object.ContentType)
 	if !exists {
 		panic("LookupObject: corrupted index: could not find content type")
 	}
@@ -397,15 +373,9 @@ func (index *Index) LookupObject(checksum [32]byte) *objects.Object {
 	}
 }
 
-func (index *Index) LookupObjectForPathname(pathname string) *objects.Object {
+func (index *Index) LookupObjectForPathname(pathnameID uint64) *objects.Object {
 	index.muPathnameToObject.Lock()
 	defer index.muPathnameToObject.Unlock()
-
-	// should implement an "exists" version ?
-	pathnameID, exists := index.GetPathnameID(filepath.Clean(pathname))
-	if !exists {
-		return nil
-	}
 
 	checksumID, exists := index.PathnameToObject[pathnameID]
 	if !exists {
@@ -420,11 +390,27 @@ func (index *Index) LookupObjectForPathname(pathname string) *objects.Object {
 	return index.LookupObject(checksum)
 }
 
+func (index *Index) LookupObjectForPathnameHash(pathnameHash [32]byte) *objects.Object {
+	checksumID, exists := index.ChecksumToId(pathnameHash)
+	if !exists {
+		return nil
+	}
+
+	index.muPathnames.Lock()
+	pathnameID, exists := index.Pathnames[checksumID]
+	index.muPathnames.Unlock()
+	if !exists {
+		return nil
+	}
+	return index.LookupObjectForPathname(pathnameID)
+
+}
+
 func (index *Index) LookupObjectsForContentType(contentType string) [][32]byte {
 	index.muContentTypeToObjects.Lock()
 	defer index.muContentTypeToObjects.Unlock()
 
-	contentTypeID, exists := index.GetContentTypeID(contentType)
+	contentTypeID, exists := index.getContentTypeID(contentType)
 	if !exists {
 		panic("LookupObjectsForContentType: corrupted index: could not find content type")
 	}

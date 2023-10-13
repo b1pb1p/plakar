@@ -20,8 +20,8 @@ import (
 	"flag"
 	"log"
 
-	"github.com/poolpOrg/plakar/logger"
-	"github.com/poolpOrg/plakar/storage"
+	"github.com/PlakarLabs/plakar/logger"
+	"github.com/PlakarLabs/plakar/storage"
 )
 
 func init() {
@@ -40,6 +40,10 @@ func cmd_check(ctx Plakar, repository *storage.Repository, args []string) int {
 	snapshots, err := getSnapshots(repository, flags.Args())
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	if len(snapshots) == 0 {
+		log.Fatal("check needs at least one snapshot ID")
 	}
 
 	failures := false
