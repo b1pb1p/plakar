@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"bytes"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -73,7 +74,7 @@ func NewFromBytes(serialized []byte) (*Metadata, error) {
 
 	md.itemsMap = make(map[Item]uint32)
 	for offset, item := range md.ItemsList {
-		//		fmt.Println("deserialize", offset, item)
+		//fmt.Println("deserialize", offset, item)
 		md.itemsMap[item] = uint32(offset)
 	}
 
@@ -134,11 +135,16 @@ func (md *Metadata) Serialize() ([]byte, error) {
 		}
 	}
 	sort.Slice(newMd.ItemsList, func(i, j int) bool {
-		return newMd.ItemsList[i].Category < newMd.ItemsList[j].Category ||
-			newMd.ItemsList[i].Key < newMd.ItemsList[j].Key ||
-			newMd.ItemsList[i].Value < newMd.ItemsList[j].Value
+		if newMd.ItemsList[i].Category < newMd.ItemsList[j].Category {
+			return true
+		}
+		if newMd.ItemsList[i].Key < newMd.ItemsList[j].Key {
+			return true
+		}
+		return newMd.ItemsList[i].Value < newMd.ItemsList[j].Value
 	})
 	for offset, value := range newMd.ItemsList {
+		fmt.Println("serializing", offset, value)
 		newMd.itemsMap[value] = uint32(offset)
 	}
 
