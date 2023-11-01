@@ -151,13 +151,6 @@ func (index *Index) Serialize() ([]byte, error) {
 		pathnamesChecksumsMap: make(map[[32]byte]uint32),
 	}
 
-	//newChunksChecksumsList := make([][32]byte, len(index.chunksChecksumsMap))
-	//newChunkIDMap := make(map[[32]byte]uint32)
-	//newObjectsChecksumsList := make([][32]byte, len(index.objectsChecksumsMap))
-	//newObjectsIDMap := make(map[[32]byte]uint32)
-	//newPathnamesChecksumsList := make([][32]byte, len(index.pathnamesChecksumsMap))
-	//newPathnamesIDMap := make(map[[32]byte]uint32)
-
 	wg := sync.WaitGroup{}
 	// first of all, sort the checksums
 	wg.Add(1)

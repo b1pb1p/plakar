@@ -1,6 +1,9 @@
 package metadata
 
 import (
+	"bytes"
+	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -12,34 +15,36 @@ import (
 
 const VERSION string = "0.0.1"
 
-type Mapping struct {
-	muMapping      sync.Mutex
-	Mapping        map[uint32][]uint32
-	ReverseMapping map[uint32]uint32
+type Item struct {
+	Category uint32
+	Key      uint32
+	Value    uint32
 }
 
 type Metadata struct {
-	muChecksums      sync.Mutex
-	checksumID       uint32
-	Checksums        map[[32]byte]uint32
-	checksumsInverse map[uint32][32]byte
+	muChecksums   sync.Mutex
+	checksumsMap  map[[32]byte]uint32
+	ChecksumsList [][32]byte
 
-	muStrings      sync.Mutex
-	stringID       uint32
-	Strings        map[string]uint32
-	stringsInverse map[uint32]string
+	muStrings   sync.Mutex
+	stringsMap  map[string]uint32
+	StringsList []string
 
-	muMappings sync.Mutex
-	Mappings   map[uint32]*Mapping
+	muItems   sync.Mutex
+	itemsMap  map[Item]uint32
+	ItemsList []Item
 }
 
 func New() *Metadata {
 	return &Metadata{
-		Checksums:        make(map[[32]byte]uint32),
-		checksumsInverse: make(map[uint32][32]byte),
-		Strings:          make(map[string]uint32),
-		stringsInverse:   make(map[uint32]string),
-		Mappings:         make(map[uint32]*Mapping),
+		checksumsMap:  make(map[[32]byte]uint32),
+		ChecksumsList: make([][32]byte, 0),
+
+		stringsMap:  make(map[string]uint32),
+		StringsList: make([]string, 0),
+
+		itemsMap:  make(map[Item]uint32),
+		ItemsList: make([]Item, 0),
 	}
 }
 
@@ -55,9 +60,20 @@ func NewFromBytes(serialized []byte) (*Metadata, error) {
 		return nil, err
 	}
 
-	md.stringsInverse = make(map[uint32]string)
-	for value, stringID := range md.Strings {
-		md.stringsInverse[stringID] = value
+	md.checksumsMap = make(map[[32]byte]uint32)
+	for checksumID, checksum := range md.ChecksumsList {
+		md.checksumsMap[checksum] = uint32(checksumID)
+	}
+
+	md.stringsMap = make(map[string]uint32)
+	for stringID, str := range md.StringsList {
+		md.stringsMap[str] = uint32(stringID)
+	}
+
+	md.itemsMap = make(map[Item]uint32)
+	for itemID, item := range md.ItemsList {
+		fmt.Println("reloading item", item)
+		md.itemsMap[item] = uint32(itemID)
 	}
 
 	return &md, nil
@@ -70,7 +86,66 @@ func (md *Metadata) Serialize() ([]byte, error) {
 		logger.Trace("metadata", "Serialize(): %s", time.Since(t0))
 	}()
 
-	serialized, err := msgpack.Marshal(md)
+	newMd := &Metadata{
+		checksumsMap:  make(map[[32]byte]uint32),
+		ChecksumsList: make([][32]byte, len(md.ChecksumsList)),
+
+		stringsMap:  make(map[string]uint32),
+		StringsList: make([]string, len(md.StringsList)),
+
+		itemsMap:  make(map[Item]uint32),
+		ItemsList: make([]Item, len(md.ItemsList)),
+	}
+
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		copy(newMd.ChecksumsList, md.ChecksumsList)
+		sort.Slice(newMd.ChecksumsList, func(i, j int) bool {
+			return bytes.Compare(newMd.ChecksumsList[i][:], newMd.ChecksumsList[j][:]) < 0
+		})
+		for offset, checksum := range newMd.ChecksumsList {
+			newMd.checksumsMap[checksum] = uint32(offset)
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		copy(newMd.StringsList, md.StringsList)
+		sort.Slice(newMd.StringsList, func(i, j int) bool {
+			return newMd.StringsList[i] < newMd.StringsList[j]
+		})
+		for offset, value := range newMd.StringsList {
+			newMd.stringsMap[value] = uint32(offset)
+		}
+	}()
+	wg.Wait()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		for _, item := range md.ItemsList {
+			newMd.ItemsList = append(newMd.ItemsList, Item{
+				Category: newMd.stringsMap[md.StringsList[item.Category]],
+				Key:      newMd.stringsMap[md.StringsList[item.Key]],
+				Value:    newMd.checksumsMap[md.ChecksumsList[item.Value]],
+			})
+		}
+		sort.Slice(newMd.ItemsList, func(i, j int) bool {
+			return newMd.ItemsList[i].Category < newMd.ItemsList[j].Category &&
+				newMd.ItemsList[i].Key < newMd.ItemsList[j].Key &&
+				newMd.ItemsList[i].Value < newMd.ItemsList[j].Value
+		})
+		for offset, value := range newMd.ItemsList {
+			newMd.itemsMap[value] = uint32(offset)
+		}
+	}()
+	wg.Wait()
+
+	serialized, err := msgpack.Marshal(newMd)
 	if err != nil {
 		return nil, err
 	}
@@ -82,11 +157,10 @@ func (md *Metadata) addChecksum(checksum [32]byte) uint32 {
 	md.muChecksums.Lock()
 	defer md.muChecksums.Unlock()
 
-	if checksumID, exists := md.Checksums[checksum]; !exists {
-		md.Checksums[checksum] = md.checksumID
-		md.checksumsInverse[md.checksumID] = checksum
-		checksumID = md.checksumID
-		md.checksumID++
+	if checksumID, exists := md.checksumsMap[checksum]; !exists {
+		checksumID = uint32(len(md.ChecksumsList))
+		md.ChecksumsList = append(md.ChecksumsList, checksum)
+		md.checksumsMap[checksum] = checksumID
 		return checksumID
 	} else {
 		return checksumID
@@ -97,7 +171,7 @@ func (md *Metadata) lookupChecksum(checksum [32]byte) (uint32, bool) {
 	md.muChecksums.Lock()
 	defer md.muChecksums.Unlock()
 
-	if checksumID, exists := md.Checksums[checksum]; !exists {
+	if checksumID, exists := md.checksumsMap[checksum]; !exists {
 		return checksumID, false
 	} else {
 		return checksumID, true
@@ -108,11 +182,11 @@ func (md *Metadata) lookupChecksumID(checksumID uint32) ([32]byte, bool) {
 	md.muChecksums.Lock()
 	defer md.muChecksums.Unlock()
 
-	if checksum, exists := md.checksumsInverse[checksumID]; !exists {
+	if int(checksumID) >= len(md.ChecksumsList) {
 		return [32]byte{}, false
-	} else {
-		return checksum, true
 	}
+
+	return md.ChecksumsList[int(checksumID)], true
 }
 
 // strings
@@ -120,14 +194,13 @@ func (md *Metadata) addString(value string) (uint32, bool) {
 	md.muStrings.Lock()
 	defer md.muStrings.Unlock()
 
-	if stringID, exists := md.Strings[value]; !exists {
-		md.Strings[value] = md.stringID
-		md.stringsInverse[md.stringID] = value
-		stringID = md.stringID
-		md.stringID++
-		return stringID, true
+	if checksumID, exists := md.stringsMap[value]; !exists {
+		checksumID = uint32(len(md.stringsMap))
+		md.StringsList = append(md.StringsList, value)
+		md.stringsMap[value] = checksumID
+		return checksumID, true
 	} else {
-		return stringID, false
+		return checksumID, false
 	}
 }
 
@@ -135,11 +208,10 @@ func (md *Metadata) lookupString(stringID uint32) (string, bool) {
 	md.muStrings.Lock()
 	defer md.muStrings.Unlock()
 
-	if value, exists := md.stringsInverse[stringID]; !exists {
+	if int(stringID) >= len(md.StringsList) {
 		return "", false
-	} else {
-		return value, true
 	}
+	return md.StringsList[stringID], true
 }
 
 // md
@@ -148,108 +220,66 @@ func (md *Metadata) AddMetadata(mdType string, mdKey string, value [32]byte) {
 	mdKeyID, _ := md.addString(mdKey)
 	externalID := md.addChecksum(value)
 
-	var mapping *Mapping
-	md.muMappings.Lock()
-	if tmp, exists := md.Mappings[mdTypeID]; !exists {
-		md.Mappings[mdTypeID] = &Mapping{
-			Mapping:        make(map[uint32][]uint32),
-			ReverseMapping: make(map[uint32]uint32),
-		}
-		mapping = md.Mappings[mdTypeID]
-	} else {
-		mapping = tmp
+	item := Item{
+		Category: mdTypeID,
+		Key:      mdKeyID,
+		Value:    externalID,
 	}
-	md.muMappings.Unlock()
 
-	mapping.muMapping.Lock()
-	mapping.Mapping[mdKeyID] = append(mapping.Mapping[mdKeyID], externalID)
-	mapping.ReverseMapping[externalID] = mdKeyID
-	mapping.muMapping.Unlock()
+	md.muItems.Lock()
+	if _, exists := md.itemsMap[item]; !exists {
+		itemID := uint32(len(md.ItemsList))
+		md.ItemsList = append(md.ItemsList, item)
+		md.itemsMap[item] = itemID
+	}
+	md.muItems.Unlock()
 }
 
 func (md *Metadata) ListKeys(mdType string) []string {
 	mdTypeID, _ := md.addString(mdType)
 
-	var mapping *Mapping
-	md.muMappings.Lock()
-	if tmp, exists := md.Mappings[mdTypeID]; !exists {
-		mapping = nil
-	} else {
-		mapping = tmp
-	}
-	md.muMappings.Unlock()
-
-	if mapping == nil {
-		return nil
-	}
-
 	ret := make([]string, 0)
-	mapping.muMapping.Lock()
-	for keyID := range mapping.Mapping {
-		key, _ := md.lookupString(keyID)
-		ret = append(ret, key)
+	md.muItems.Lock()
+	for _, item := range md.ItemsList {
+		if item.Category == mdTypeID {
+			key, _ := md.lookupString(item.Key)
+			ret = append(ret, key)
+		}
 	}
-	mapping.muMapping.Unlock()
-
+	md.muItems.Unlock()
 	return ret
 }
 
 func (md *Metadata) ListValues(mdType string, mdKey string) [][32]byte {
 	mdTypeID, _ := md.addString(mdType)
-
-	var mapping *Mapping
-	md.muMappings.Lock()
-	if tmp, exists := md.Mappings[mdTypeID]; !exists {
-		mapping = nil
-	} else {
-		mapping = tmp
-	}
-	md.muMappings.Unlock()
-
-	if mapping == nil {
-		return nil
-	}
+	mdKeyID, _ := md.addString(mdKey)
 
 	ret := make([][32]byte, 0)
-	mapping.muMapping.Lock()
-	for keyID := range mapping.Mapping {
-		for _, valueID := range mapping.Mapping[keyID] {
-			value, _ := md.lookupChecksumID(valueID)
+	md.muItems.Lock()
+	for _, item := range md.ItemsList {
+		if item.Category == mdTypeID && item.Key == mdKeyID {
+			value, _ := md.lookupChecksumID(item.Value)
 			ret = append(ret, value)
 		}
 	}
-	mapping.muMapping.Unlock()
-
+	md.muItems.Unlock()
 	return ret
 }
 
 func (md *Metadata) LookupKeyForValue(mdType string, value [32]byte) (string, bool) {
 	mdTypeID, _ := md.addString(mdType)
 
-	var mapping *Mapping
-	md.muMappings.Lock()
-	if tmp, exists := md.Mappings[mdTypeID]; !exists {
-		mapping = nil
-	} else {
-		mapping = tmp
-	}
-	md.muMappings.Unlock()
-
-	if mapping == nil {
-		return "", false
-	}
-
 	valueId, exists := md.lookupChecksum(value)
 	if !exists {
 		return "", false
 	}
 
-	mapping.muMapping.Lock()
-	defer mapping.muMapping.Unlock()
-	if keyID, exists := mapping.ReverseMapping[valueId]; !exists {
-		return "", false
-	} else {
-		key, _ := md.lookupString(keyID)
-		return key, true
+	md.muItems.Lock()
+	defer md.muItems.Unlock()
+	for _, item := range md.ItemsList {
+		if item.Category == mdTypeID && item.Value == valueId {
+			return md.StringsList[item.Key], true
+		}
 	}
+	return "", false
 }
