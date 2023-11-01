@@ -2,7 +2,6 @@ package metadata
 
 import (
 	"bytes"
-	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -62,18 +61,20 @@ func NewFromBytes(serialized []byte) (*Metadata, error) {
 
 	md.checksumsMap = make(map[[32]byte]uint32)
 	for checksumID, checksum := range md.ChecksumsList {
+		//		fmt.Printf("deserialize checksumsMap: %d = %016x\n", checksumID, checksum)
 		md.checksumsMap[checksum] = uint32(checksumID)
 	}
 
 	md.stringsMap = make(map[string]uint32)
 	for stringID, str := range md.StringsList {
+		//		fmt.Printf("deserialize stringsMap: %d = %s\n", stringID, str)
 		md.stringsMap[str] = uint32(stringID)
 	}
 
 	md.itemsMap = make(map[Item]uint32)
-	for itemID, item := range md.ItemsList {
-		fmt.Println("reloading item", item)
-		md.itemsMap[item] = uint32(itemID)
+	for offset, item := range md.ItemsList {
+		//		fmt.Println("deserialize", offset, item)
+		md.itemsMap[item] = uint32(offset)
 	}
 
 	return &md, nil
@@ -106,6 +107,7 @@ func (md *Metadata) Serialize() ([]byte, error) {
 			return bytes.Compare(newMd.ChecksumsList[i][:], newMd.ChecksumsList[j][:]) < 0
 		})
 		for offset, checksum := range newMd.ChecksumsList {
+			//			fmt.Printf("serialize checksumsMap: %d = %016x\n", offset, checksum)
 			newMd.checksumsMap[checksum] = uint32(offset)
 		}
 	}()
@@ -117,33 +119,28 @@ func (md *Metadata) Serialize() ([]byte, error) {
 		sort.Slice(newMd.StringsList, func(i, j int) bool {
 			return newMd.StringsList[i] < newMd.StringsList[j]
 		})
-		for offset, value := range newMd.StringsList {
-			newMd.stringsMap[value] = uint32(offset)
+		for offset, str := range newMd.StringsList {
+			//	fmt.Printf("serialize stringsMap: %d = %s\n", offset, str)
+			newMd.stringsMap[str] = uint32(offset)
 		}
 	}()
 	wg.Wait()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		for _, item := range md.ItemsList {
-			newMd.ItemsList = append(newMd.ItemsList, Item{
-				Category: newMd.stringsMap[md.StringsList[item.Category]],
-				Key:      newMd.stringsMap[md.StringsList[item.Key]],
-				Value:    newMd.checksumsMap[md.ChecksumsList[item.Value]],
-			})
+	for offset, item := range md.ItemsList {
+		newMd.ItemsList[offset] = Item{
+			Category: newMd.stringsMap[md.StringsList[item.Category]],
+			Key:      newMd.stringsMap[md.StringsList[item.Key]],
+			Value:    newMd.checksumsMap[md.ChecksumsList[item.Value]],
 		}
-		sort.Slice(newMd.ItemsList, func(i, j int) bool {
-			return newMd.ItemsList[i].Category < newMd.ItemsList[j].Category &&
-				newMd.ItemsList[i].Key < newMd.ItemsList[j].Key &&
-				newMd.ItemsList[i].Value < newMd.ItemsList[j].Value
-		})
-		for offset, value := range newMd.ItemsList {
-			newMd.itemsMap[value] = uint32(offset)
-		}
-	}()
-	wg.Wait()
+	}
+	sort.Slice(newMd.ItemsList, func(i, j int) bool {
+		return newMd.ItemsList[i].Category < newMd.ItemsList[j].Category ||
+			newMd.ItemsList[i].Key < newMd.ItemsList[j].Key ||
+			newMd.ItemsList[i].Value < newMd.ItemsList[j].Value
+	})
+	for offset, value := range newMd.ItemsList {
+		newMd.itemsMap[value] = uint32(offset)
+	}
 
 	serialized, err := msgpack.Marshal(newMd)
 	if err != nil {
