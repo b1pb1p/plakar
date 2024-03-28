@@ -47,8 +47,6 @@ type Plakar struct {
 	Config *config.ConfigAPI
 
 	KeyFromFile string
-
-	maxConcurrency chan struct{}
 }
 
 var commands map[string]func(Plakar, *storage.Repository, []string) int = make(map[string]func(Plakar, *storage.Repository, []string) int)
