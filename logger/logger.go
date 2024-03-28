@@ -83,37 +83,41 @@ func Start() func() {
 	traceChannel = make(chan string)
 
 	var wg sync.WaitGroup
-
 	wg.Add(1)
-	go func() {
-		for msg := range stdoutChannel {
-			fmt.Println(msg)
-		}
-		wg.Done()
-	}()
 
-	wg.Add(1)
 	go func() {
-		for msg := range stderrChannel {
-			fmt.Fprintln(os.Stderr, msg)
+		defer wg.Done()
+		for {
+			select {
+			case msg, ok := <-stdoutChannel:
+				if !ok {
+					stdoutChannel = nil
+				} else {
+					fmt.Println(msg)
+				}
+			case msg, ok := <-stderrChannel:
+				if !ok {
+					stderrChannel = nil
+				} else {
+					fmt.Fprintln(os.Stderr, msg)
+				}
+			case msg, ok := <-debugChannel:
+				if !ok {
+					debugChannel = nil
+				} else {
+					fmt.Println(msg)
+				}
+			case msg, ok := <-traceChannel:
+				if !ok {
+					traceChannel = nil
+				} else {
+					fmt.Fprintln(os.Stderr, msg)
+				}
+			}
+			if stdoutChannel == nil && stderrChannel == nil && debugChannel == nil && traceChannel == nil {
+				break
+			}
 		}
-		wg.Done()
-	}()
-
-	wg.Add(1)
-	go func() {
-		for msg := range debugChannel {
-			fmt.Println(msg)
-		}
-		wg.Done()
-	}()
-
-	wg.Add(1)
-	go func() {
-		for msg := range traceChannel {
-			fmt.Fprintln(os.Stderr, msg)
-		}
-		wg.Done()
 	}()
 
 	return func() {
