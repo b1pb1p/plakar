@@ -299,9 +299,15 @@ func entryPoint() int {
 
 			maxCgoCalls := int64(0)
 			maxMemAlloc := uint64(0)
-			avgMemAlloc := uint64(0)
+			sumMaxMemAlloc := uint64(0) // New accumulator for sum of maximum memory allocations
+			avgMaxMemAlloc := uint64(0) // This will hold the mean of the max memory allocations
 
-			t0 := time.Now()
+			sumMaxRBytes := uint64(0)
+			sumMaxWBytes := uint64(0)
+			maxRBytes := uint64(0)
+			maxWBytes := uint64(0)
+			avgMaxRBytes := uint64(0)
+			avgMaxWBytes := uint64(0)
 
 			lastrbytes := uint64(0)
 			lastwbytes := uint64(0)
@@ -309,18 +315,23 @@ func entryPoint() int {
 			for {
 				if iterCount != 0 {
 
-					elapsedSeconds := time.Since(t0).Seconds()
-
 					rbytes := repository.GetRBytes()
 					wbytes := repository.GetWBytes()
-
-					rbytesAvg := rbytes / uint64(elapsedSeconds)
-					wbytesAvg := wbytes / uint64(elapsedSeconds)
 
 					diffrbytes := rbytes - lastrbytes
 					diffwbytes := wbytes - lastwbytes
 					lastrbytes = rbytes
 					lastwbytes = wbytes
+
+					if rbytes > maxRBytes {
+						maxRBytes = rbytes
+						sumMaxRBytes += maxRBytes
+					}
+
+					if wbytes > maxWBytes {
+						maxWBytes = wbytes
+						sumMaxWBytes += maxWBytes
+					}
 
 					var memStats runtime.MemStats
 					runtime.ReadMemStats(&memStats)
@@ -329,15 +340,20 @@ func entryPoint() int {
 						maxGoroutines = runtime.NumGoroutine()
 					}
 					totalGoroutines += runtime.NumGoroutine()
-					avgGoroutines = totalGoroutines / int(elapsedSeconds)
 
 					if runtime.NumCgoCall() > maxCgoCalls {
 						maxCgoCalls = runtime.NumCgoCall()
 					}
 					if memStats.Alloc > maxMemAlloc {
 						maxMemAlloc = memStats.Alloc
+						sumMaxMemAlloc += maxMemAlloc
 					}
-					avgMemAlloc = memStats.TotalAlloc / uint64(iterCount)
+					if iterCount > 0 {
+						avgGoroutines = totalGoroutines / iterCount
+						avgMaxMemAlloc = sumMaxMemAlloc / uint64(iterCount)
+						avgMaxRBytes = sumMaxRBytes / uint64(iterCount)
+						avgMaxWBytes = sumMaxWBytes / uint64(iterCount)
+					}
 
 					logger.Printf("[stats] cpu: goroutines: %d (μ %d, <= %d), cgocalls: %d (<= %d) | mem: %s (μ %s, <= %s, += %s), gc: %d | storage: rd: %s (μ %s, += %s), wr: %s (μ %s, += %s)",
 						runtime.NumGoroutine(),
@@ -346,12 +362,12 @@ func entryPoint() int {
 						runtime.NumCgoCall(),
 						maxCgoCalls,
 						humanize.Bytes(memStats.Alloc),
-						humanize.Bytes(avgMemAlloc),
+						humanize.Bytes(avgMaxMemAlloc),
 						humanize.Bytes(maxMemAlloc),
 						humanize.Bytes(memStats.TotalAlloc),
 						memStats.NumGC,
-						humanize.Bytes(diffrbytes), humanize.Bytes(rbytesAvg), humanize.Bytes(rbytes),
-						humanize.Bytes(diffwbytes), humanize.Bytes(wbytesAvg), humanize.Bytes(wbytes))
+						humanize.Bytes(diffrbytes), humanize.Bytes(avgMaxRBytes), humanize.Bytes(rbytes),
+						humanize.Bytes(diffwbytes), humanize.Bytes(avgMaxWBytes), humanize.Bytes(wbytes))
 				}
 
 				select {
